@@ -186,22 +186,24 @@ function documents(d) {
   <div class="card"><h4>Documents</h4>${docs.map(x => `<div class="doc"><span class="ic">📄</span><div><b>${esc(x.title)}</b><small>Uploaded: ${fdate(x.uploaded_on)}</small></div><div class="sp"><button class="btn ghost sm" data-v="${x.id}">View</button><button class="btn ghost sm" data-d="${x.id}">⤓ Download</button></div></div>`).join("") || `<div class="empty">No documents uploaded.</div>`}
   ${d.c.status === "Pending Documents" ? `<p style="color:var(--amber)">⚠ Registration certificate and driving license are still outstanding.</p>` : ""}</div>`;
 }
-function aiTab(d) {
-  const a = d.ai, by = Object.fromEntries(d.runs.map(r => [r.agent_key, r]));
-  const ico = { ok: "✓", warn: "!", risk: "✕" };
-  const cards = AGENTS.map(g => {
-    const r = by[g.key] || { status: "Not run", findings: [], metrics: {} };
-    return `<div class="agent" style="--ac:${g.color}"><div class="ah"><img class="aico" alt="" src="${svgUri(g.avatar_svg)}"><div style="flex:1"><b>${esc(g.name)}</b><small>${esc(g.role)}</small></div><span class="st st-${r.status.replace(/\s/g, "")}">${esc(r.status)}</span></div>
+const ICO = { ok: "✓", warn: "!", risk: "✕" };
+function agentCard(g, run) {
+  const r = run || { status: "Not run", findings: [], metrics: {} }, ico = ICO;
+  return `<div class="agent" style="--ac:${g.color}"><div class="ah"><img class="aico" alt="" src="${svgUri(g.avatar_svg)}"><div style="flex:1"><b>${esc(g.name)}</b><small>${esc(g.role)}</small></div><span class="st st-${r.status.replace(/\s/g, "")}">${esc(r.status)}</span></div>
       <p class="atag">${esc(g.tagline)}</p><div class="alab">Scope</div><ul class="scope">${g.scope.map(x => `<li>${esc(x)}</li>`).join("")}</ul>
       <div class="alab">Output</div><div class="ahead">${esc(r.headline || "—")}</div>
       <ul class="fl">${r.findings.map(f => `<li class="l-${f.level}"><i>${ico[f.level]}</i><span>${esc(f.text)}</span></li>`).join("") || `<li class="l-pend"><i>…</i><span>No output yet.</span></li>`}</ul>
       <div class="afoot">${r.confidence ? `<div class="conf"><span style="width:${r.confidence}%"></span></div><small>Confidence ${r.confidence}%</small>` : ""}<small>${r.duration_ms ? (r.duration_ms / 1000).toFixed(1) + "s · " : ""}${r.inputs ? esc(r.inputs) + " · " : ""}${esc(g.model)}</small></div></div>`;
-  }).join("");
+}
+function aiTab(d) {
+  const a = d.ai, by = Object.fromEntries(d.runs.map(r => [r.agent_key, r]));
+  const ico = { ok: "✓", warn: "!", risk: "✕" };
+  const cards = AGENTS.filter(g => g.key !== "uw").map(g => agentCard(g, by[g.key])).join("");
   const banner = `<div class="ai-banner"><b>AI Document &amp; Image Analysis</b><br><small>Four specialised AI agents analysed the claim documents and images to detect damage, estimate repair cost and identify potential fraud indicators. Each agent's output is mapped into the consolidated findings below.</small></div><div class="agents">${cards}</div>`;
   if (!a) return banner + `<div class="card empty">Consolidated analysis is not available yet — required documents are still pending.</div>`;
   const fr = by.fraud, rp = by.repair, im = by.img;
   const tag = k => { const g = AGENTS.find(x => x.key === k); return `<span class="chip" style="--ac:${g.color}"><img class="mini" alt="" src="${svgUri(g.avatar_svg)}">${esc(g.name)}</span>`; };
-  const all = d.runs.flatMap(r => r.findings.map(f => ({ ...f, k: r.agent_key })));
+  const all = d.runs.filter(r => r.agent_key !== "uw").flatMap(r => r.findings.map(f => ({ ...f, k: r.agent_key })));
   return banner + `<h4 style="margin:6px 0 10px">Consolidated result</h4>
   <div class="tiles"><div class="tile"><small>Damage Severity ${tag("img")}</small><b class="t-${a.damage_severity}">${a.damage_severity}</b></div><div class="tile"><small>Estimated Repair Cost ${tag("repair")}</small><b>${money(a.repair_min)} – ${money(a.repair_max)}</b></div><div class="tile"><small>Fraud Risk ${tag("fraud")}</small><b class="t-${a.fraud_risk}">${a.fraud_risk}${fr?.metrics?.score != null ? ` <span style="font-size:13px;color:var(--mut)">(${fr.metrics.score}/100)</span>` : ""}</b></div></div>
   <div class="grid2"><div class="card"><h4>Key Findings</h4><ul class="fl big">${all.map(f => `<li class="l-${f.level}"><i>${ico[f.level]}</i><span>${esc(f.text)} ${tag(f.k)}</span></li>`).join("")}</ul></div>
@@ -219,7 +221,10 @@ function decision(d) {
     <label style="font-size:12px;color:var(--mut);display:block;margin-top:12px">Comments</label><textarea id="dcm" placeholder="Add your comments (optional)…"></textarea>
     <button class="btn" style="width:100%;margin-top:12px" id="dsub">Submit Decision</button></div>`;
   else form = `<div class="card empty">No decision is required at this stage (status: ${esc(c.status)}).</div>`;
-  return rec + form;
+  const g = AGENTS.find(x => x.key === "uw"), ur = d.runs.find(x => x.agent_key === "uw");
+  const mt = ur?.metrics || {};
+  const stats = ur ? `<div class="tiles" style="margin-bottom:14px"><div class="tile"><small>Approval authority</small><b style="font-size:17px">${esc(mt.authority_level || "—")}</b></div><div class="tile"><small>Estimated payable (after deductible)</small><b style="font-size:17px">${money(mt.estimated_payable_aed)}</b></div><div class="tile"><small>Agent confidence</small><b style="font-size:17px">${ur.confidence}%</b></div></div>` : "";
+  return (g ? `<div class="ai-banner"><b>Underwriting Advisor - AI agent</b><br><small>UnderwriteIQ reads the four analysis agents' outputs and recommends the decision, conditions and actions below. The human underwriter makes the final decision.</small></div><div class="agents one">${agentCard(g, ur)}</div>${stats}` : "") + rec + form;
 }
 function garage(d) {
   const c = d.c, total = d.gar.reduce((s, x) => s + +x.estimated_cost, 0), net = Math.max(total - c.deductible, 0);
