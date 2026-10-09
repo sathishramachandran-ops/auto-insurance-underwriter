@@ -1,4 +1,4 @@
-# Auto Insurance – Claim Underwriter Portal
+# ClaimAssist – Claim Underwriter Portal
 
 Static web app (vanilla JS) that consumes all claim data from Supabase (`uw_*` tables):
 claims, vehicle/insured details, images & documents, AI analysis, decisions, garage estimates, payments, timeline.
