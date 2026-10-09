@@ -5,7 +5,7 @@ const $app = document.getElementById("app");
 let user = JSON.parse(sessionStorage.getItem("uw_user") || "null");
 let claims = null;            // cached list
 const detailCache = {};
-let AGENTS = null;
+let AGENTS = null, STATS = [];
 
 // ---------- helpers ----------
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -83,9 +83,32 @@ function shell(active, inner, top = "") {
 
 // ---------- list / dashboard ----------
 let F = { status: "All Status", period: "90", q: "", card: null };
+const fmtN = n => n >= 1e6 ? (n / 1e6).toFixed(2) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "K" : String(n || 0);
+const fmtS = ms => ms ? (ms / 1000).toFixed(1) + "s" : "—";
+function fleetHtml() {
+  const by = Object.fromEntries(STATS.map(x => [x.agent_key, x])), wf = by.workflow || {}, ag = AGENTS;
+  const sum = k => ag.reduce((t, g) => t + (by[g.key]?.[k] || 0), 0);
+  const tin = sum("tokens_in"), tout = sum("tokens_out"), online = ag.filter(g => by[g.key]?.status === "Online").length;
+  const okr = sum("runs") ? Math.round(sum("successful_runs") / sum("runs") * 100) : 0;
+  const upd = STATS.reduce((m, x) => x.updated_at > m ? x.updated_at : m, "");
+  const tiles = [["Agents online", `${online} / ${ag.length}`, "all healthy"], ["Claims analysed", wf.runs || 0, "workflow runs"], ["Tokens consumed", fmtN(tin + tout), `${fmtN(tin)} in · ${fmtN(tout)} out`],
+    ["Avg time per claim", fmtS(wf.avg_latency_ms), "5 agents, end to end"], ["Success rate", okr + "%", `${sum("runs")} agent runs`]];
+  const cards = ag.map(g => {
+    const x = by[g.key] || {}, rate = x.runs ? Math.round(x.successful_runs / x.runs * 100) : 0, tk = (x.tokens_in || 0) + (x.tokens_out || 0);
+    const st = [["Runs executed", x.runs || 0], ["Success rate", rate + "%"], ["Avg latency", fmtS(x.avg_latency_ms)], ["P95 latency", fmtS(x.p95_latency_ms)],
+      ["Tokens used", fmtN(tk)], ["Avg tokens / run", fmtN(x.runs ? Math.round(tk / x.runs) : 0)], ["LLM calls", x.llm_calls || 0], ["Tool calls", x.tool_calls || 0]];
+    return `<div class="agent" style="--ac:${g.color}"><div class="ah"><img class="aico" alt="" src="${svgUri(g.avatar_svg)}"><div style="flex:1"><b>${esc(g.name)}</b><small>${esc(g.role)}</small></div><span class="online"><i></i>${esc(x.status || "Offline")}</span></div>
+      <p class="atag">${esc(g.tagline)}</p><ul class="scope">${g.scope.slice(0, 2).map(t => `<li>${esc(t)}</li>`).join("")}</ul>
+      <div class="astats">${st.map(([l, v]) => `<div><small>${l}</small><b>${v}</b></div>`).join("")}</div>
+      <div class="afoot"><small>Model ${esc(x.model || g.model)}</small><small>Last run ${x.last_run_at ? fdt(x.last_run_at) : "—"}</small></div></div>`;
+  }).join("");
+  return `<div class="card" style="margin-bottom:16px"><div class="toolbar"><h3>AI Agent Team</h3><small style="color:var(--mut)">Live from Kore Agent Platform runs · updated ${fdt(upd)}</small></div>
+    <div class="tiles five">${tiles.map(([l, v, sub]) => `<div class="tile"><small>${l}</small><b>${v}</b><small>${sub}</small></div>`).join("")}</div></div><div class="agents three">${cards}</div>`;
+}
 async function renderList(mode) {
   shell(mode, `<div class="spin">Loading claims…</div>`);
   const all = await loadClaims(true);
+  if (mode === "dashboard") { if (!AGENTS) AGENTS = await api("uw_ai_agents?select=*&order=sort_order"); STATS = await api("uw_agent_stats?select=*"); }
   draw();
   function draw() {
     let rows = all;
@@ -96,24 +119,25 @@ async function renderList(mode) {
     let list = rows.filter(c => new Date(c.reported_on) >= cutoff);
     if (F.status !== "All Status") list = list.filter(c => c.status === F.status);
     if (F.q) { const q = F.q.toLowerCase(); list = list.filter(c => [c.claim_no, c.policy_no, c.insured_name, c.make_model, c.reg_no].join(" ").toLowerCase().includes(q)); }
-    const titles = { dashboard: ["Claims Dashboard", "View and manage all assigned claims"], claims: ["All Claims", "Browse every claim in the system"], queue: ["My Queue", "Claims assigned to you that need action"] };
+    const titles = { dashboard: ["Claims Dashboard", "Claim KPIs and the AI agent team processing them"], claims: ["All Claims", "Browse every claim in the system"], queue: ["My Queue", "Claims assigned to you that need action"] };
     const top = `<div class="top"><div><h2>${titles[mode][0]}</h2><p>${titles[mode][1]}</p></div><input class="search" id="q" placeholder="🔍 Search by claim number, policy no, vehicle no…" value="${esc(F.q)}"></div>`;
     const cards = mode === "dashboard" ? `<div class="stats">
       ${[["Total Claims", all.length, null, ""], ["Pending Underwriting", cnt("Pending Underwriting"), "Pending Underwriting", "color:var(--amber)"], ["In Review", cnt("In Review"), "In Review", "color:var(--blue)"],
          ["Approved", cnt(["Approved", "Closed"]), "Approved", "color:var(--green)"], ["Rejected", cnt("Rejected"), "Rejected", "color:var(--red)"]]
         .map(([l, n, s, st]) => `<div class="card stat ${F.status === s && s ? "on" : ""}" data-s="${s || ""}"><small>${l}</small><b style="${st}">${n}</b></div>`).join("")}</div>` : "";
     const statuses = ["All Status", "Pending Underwriting", "In Review", "Pending Documents", "Pending Garage Estimate", "Approved", "Rejected", "Closed"];
-    shell(mode, `${cards}<div class="card"><div class="toolbar"><h3>Claims List <small style="color:var(--mut);font-weight:400">(${list.length})</small></h3>
+    shell(mode, `${cards}${mode === "dashboard" ? fleetHtml() : `<div class="card"><div class="toolbar"><h3>Claims List <small style="color:var(--mut);font-weight:400">(${list.length})</small></h3>
       <select id="fs">${statuses.map(s => `<option ${s === F.status ? "selected" : ""}>${s}</option>`).join("")}</select>
       <select id="fp">${[["30", "Last 30 days"], ["60", "Last 60 days"], ["90", "Last 90 days"], ["all", "All time"]].map(([v, l]) => `<option value="${v}" ${v === F.period ? "selected" : ""}>${l}</option>`).join("")}</select>
       <button class="btn ghost sm" id="ex">⤓ Export</button></div>
       <div class="tablewrap"><table><thead><tr><th>Claim No.</th><th>Policy No.</th><th>Insured Name</th><th>Vehicle</th><th>Loss Date</th><th>Status</th><th>Action</th></tr></thead><tbody>
       ${list.map(c => `<tr class="row" data-id="${c.id}"><td><b>${c.claim_no}</b></td><td>${c.policy_no}</td><td>${esc(c.insured_name)}</td><td>${esc(c.make_model)}</td><td>${fdate(c.loss_date)}</td><td>${badge(c.status)}</td><td><a href="#/claim/${c.id}">View</a></td></tr>`).join("") || `<tr><td colspan="7" class="empty">No claims match the filters.</td></tr>`}
-      </tbody></table></div></div>`, top);
-    const q = document.getElementById("q"); q.oninput = () => { F.q = q.value; const p = q.selectionStart; draw(); const n = document.getElementById("q"); n.focus(); n.setSelectionRange(p, p); };
+      </tbody></table></div></div>`}`, top);
+    const q = document.getElementById("q"); if (mode !== "dashboard") q.oninput = () => { F.q = q.value; const p = q.selectionStart; draw(); const n = document.getElementById("q"); n.focus(); n.setSelectionRange(p, p); };
+    document.querySelectorAll(".stat").forEach(el => el.onclick = () => { F.status = el.dataset.s || "All Status"; if (mode === "dashboard") go("/claims"); else draw(); });
+    if (mode === "dashboard") { q.onkeydown = e => { if (e.key === "Enter") { F.q = q.value; go("/claims"); } }; return; }
     document.getElementById("fs").onchange = e => { F.status = e.target.value; draw(); };
     document.getElementById("fp").onchange = e => { F.period = e.target.value; draw(); };
-    document.querySelectorAll(".stat").forEach(el => el.onclick = () => { F.status = el.dataset.s || "All Status"; draw(); });
     document.querySelectorAll("tr.row").forEach(el => el.onclick = () => go("/claim/" + el.dataset.id));
     document.getElementById("ex").onclick = () => {
       const csv = [["Claim No", "Policy No", "Insured", "Vehicle", "Loss Date", "Status"], ...list.map(c => [c.claim_no, c.policy_no, c.insured_name, c.make_model, c.loss_date, c.status])].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
