@@ -46,7 +46,7 @@ async function route() {
     if (page === "claims") return await renderList("claims");
     if (page === "queue") return await renderList("queue");
     if (page === "reports") return await renderReports(id);
-    if (page === "settings") return renderSettings();
+    if (page === "settings") return renderSettings(id);
     return await renderList("dashboard");
   } catch (e) { shell("", `<div class="card empty">Failed to load: ${esc(e.message)}</div>`); }
 }
@@ -67,7 +67,7 @@ function renderLogin() {
     try {
       const u = await rpc("uw_login", { p_email: em.value, p_password: pw.value });
       if (!u) throw new Error("Invalid email or password");
-      user = u; sessionStorage.setItem("uw_user", JSON.stringify(u)); location.hash = "#/dashboard"; route();
+      user = u; sessionStorage.setItem("uw_user", JSON.stringify(u)); location.hash = "#/" + (JSON.parse(localStorage.getItem("uw_prefs") || "{}").landing || "dashboard"); route();
     } catch (er) { document.getElementById("le").textContent = er.message; b.disabled = false; b.textContent = "Login"; }
   };
 }
@@ -156,11 +156,12 @@ async function renderReports(tab) {
   shell("reports", `<div id="rp-root"></div>`);
   Reports.mount(document.getElementById("rp-root"), D, go, tab);
 }
-function renderSettings() {
-  shell("settings", `<div class="card"><dl class="kv"><dt>Name</dt><dd>${esc(user.name)}</dd><dt>Email</dt><dd>${esc(user.email)}</dd><dt>Role</dt><dd>${esc(user.role)}</dd><dt>Data source</dt><dd>Supabase (${esc(URL_)})</dd></dl></div>`,
-    `<div class="top"><div><h2>Settings</h2><p>Your profile</p></div></div>`);
+async function renderSettings(tab) {
+  shell("settings", `<div id="st-root"></div>`);
+  if (!AGENTS) AGENTS = await api("uw_ai_agents?select=*&order=sort_order");
+  const ag = k => AGENTS.find(x => x.key === k);
+  await Settings.mount(document.getElementById("st-root"), { tab, api, rpc, user, toast, claims: () => loadClaims(), avatar: k => svgUri(ag(k).avatar_svg), role: k => ag(k).role });
 }
-
 // ---------- claim details ----------
 const TABS = [["overview", "Overview"], ["vehicle", "Vehicle"], ["documents", "Documents & Images"], ["ai", "AI Analysis"], ["decision", "Underwriting Decision"], ["garage", "Garage Estimate"], ["timeline", "Timeline"]];
 async function fetchDetail(id) {
@@ -277,5 +278,6 @@ function modal(html) {
   m.onclick = e => { if (e.target === m) m.remove(); }; document.body.appendChild(m);
 }
 
+if (JSON.parse(localStorage.getItem("uw_prefs") || "{}").density === "compact") document.body.classList.add("compact");
 route();
 })();
