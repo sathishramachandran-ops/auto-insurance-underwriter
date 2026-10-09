@@ -226,12 +226,40 @@ function agentCard(g, run) {
       <ul class="fl">${r.findings.map(f => `<li class="l-${f.level}"><i>${ico[f.level]}</i><span>${esc(f.text)}</span></li>`).join("") || `<li class="l-pend"><i>…</i><span>No output yet.</span></li>`}</ul>
       <div class="afoot">${r.confidence ? `<div class="conf"><span style="width:${r.confidence}%"></span></div><small>Confidence ${r.confidence}%</small>` : ""}<small>${r.duration_ms ? (r.duration_ms / 1000).toFixed(1) + "s · " : ""}${r.inputs ? esc(r.inputs) + " · " : ""}${esc(g.model)}</small></div></div>`;
 }
+const STEPLIST = [["DocuMind - document analysis", ["DocuMind_Document_Analyzer"]], ["VisionAssess - image analysis", ["VisionAssess_Image_Analyzer"]], ["FraudShield - fraud check", ["FraudShield_Fraud_Check"]], ["RepairIQ - repair cost", ["RepairIQ_Repair_Cost"]], ["Save agent findings", ["Save_DocuMind_result", "Save_VisionAssess_result", "Save_FraudShield_result", "Save_RepairIQ_result"]], ["Consolidate findings", ["Consolidate_agent_findings"]], ["UnderwriteIQ - recommendation", ["UnderwriteIQ_Underwriting_Advisor"]], ["Save recommendation", ["Save_UnderwriteIQ_result"]]];
+function progHtml(r, workerOk) {
+  if (!r) return "";
+  const done = r.status === "completed", failed = r.status === "failed", secs = Math.round(((r.finished_at ? new Date(r.finished_at) : Date.now()) - new Date(r.started_at || r.requested_at)) / 1000);
+  const st = names => { const v = names.map(n => r.steps?.[n]); return v.every(x => x === "completed") ? "done" : v.some(x => x === "running" || x === "completed") ? "run" : "wait"; };
+  const head = r.status === "queued" ? `<b>Request queued</b><small>${workerOk === false ? "The Kore bridge worker is offline - start it with <code>node ~/cto-workspace-build/ai-run-worker.mjs</code>" : "Waiting for the Kore bridge to start the workflow…"}</small>` : done ? `<b>✓ Completed on Kore Agent Platform</b><small>Execution ${esc((r.execution_id || "").slice(0, 8))} · ${secs}s</small>` : failed ? `<b style="color:var(--red)">Run failed</b><small>${esc(r.error || "")}</small>` : `<b>Running on Kore Agent Platform…</b><small>Execution ${esc((r.execution_id || "").slice(0, 8))} · ${secs}s</small>`;
+  const res = done && r.result ? `<div class="tiles" style="margin-top:12px"><div class="tile"><small>Damage severity</small><b>${esc(r.result.damage_severity || "-")}</b></div><div class="tile"><small>Fraud risk</small><b>${esc(r.result.fraud_risk || "-")}</b></div><div class="tile"><small>Repair cost band</small><b>${money(r.result.repair_min)} - ${money(r.result.repair_max)}</b></div></div><p style="margin:10px 0 0"><b>Recommendation:</b> ${esc(r.result.recommendation || "-")}</p>` : "";
+  return `<div class="card rprog"><div class="rph">${head}</div><ul class="rst">${STEPLIST.map(([l, n]) => { const x = done ? "done" : st(n); return `<li class="${x}"><i>${x === "done" ? "✓" : x === "run" ? "" : "○"}</i>${l}</li>`; }).join("")}</ul>${res}</div>`;
+}
+function runBar(d) {
+  const has = d.runs.some(x => x.agent_key !== "uw");
+  return `<div class="card runbar"><div><b>${has ? "Re-run the AI agents" : "Run the AI agents"}</b><small>Starts the Claim AI Analysis workflow on Kore Agent Platform - DocuMind, VisionAssess, FraudShield and RepairIQ run in parallel, then UnderwriteIQ recommends the decision. Results appear here when it finishes.</small></div><button class="btn" id="runai">${has ? "↻ Re-run AI agents" : "▶ Run AI agents"}</button></div><div id="runprog"></div>`;
+}
+function bindRun(d) {
+  const id = d.c.id, btn = document.getElementById("runai"), box = document.getElementById("runprog"); if (!btn) return;
+  let timer = null, wk = null;
+  const poll = async () => {
+    if (!document.getElementById("runai")) { clearInterval(timer); return; }
+    const r = await rpc("uw_ai_run_status", { p_claim: id }); if (!r) return;
+    if (r.status === "queued" && Date.now() - new Date(r.requested_at) > 15000 && wk === null) { try { const w = await api("uw_agent_stats?agent_key=eq.worker&select=updated_at"); wk = !!w[0] && Date.now() - new Date(w[0].updated_at) < 30000; } catch (_) { wk = false; } }
+    box.innerHTML = progHtml(r, r.status === "queued" ? wk : true);
+    if (r.status === "completed") { clearInterval(timer); toast("AI agents finished - results updated"); delete detailCache[id]; claims = null; refreshBadge(); setTimeout(() => renderClaim(id, "ai"), 1500); }
+    else if (r.status === "failed") { clearInterval(timer); btn.disabled = false; btn.textContent = "↻ Retry"; }
+  };
+  const start = () => { btn.disabled = true; btn.textContent = "Running…"; wk = null; clearInterval(timer); timer = setInterval(poll, 2000); poll(); };
+  btn.onclick = async () => { try { const r = await rpc("uw_request_ai_run", { p_claim: id, p_user: user.name }); if (r.error) throw new Error(r.error); start(); } catch (e) { toast(e.message); } };
+  rpc("uw_ai_run_status", { p_claim: id }).then(r => { if (r && ["queued", "running"].includes(r.status) && Date.now() - new Date(r.requested_at) < 600000) start(); });
+}
 function aiTab(d) {
-  const a = d.ai, by = Object.fromEntries(d.runs.map(r => [r.agent_key, r]));
+  const a = d.runs.some(x => x.agent_key !== "uw") ? d.ai : null, by = Object.fromEntries(d.runs.map(r => [r.agent_key, r]));
   const ico = { ok: "✓", warn: "!", risk: "✕" };
   const cards = AGENTS.filter(g => g.key !== "uw").map(g => agentCard(g, by[g.key])).join("");
-  const banner = `<div class="ai-banner"><b>AI Document &amp; Image Analysis</b><br><small>Four specialised AI agents analysed the claim documents and images to detect damage, estimate repair cost and identify potential fraud indicators. Each agent's output is mapped into the consolidated findings below.</small></div><div class="agents">${cards}</div>`;
-  if (!a) return banner + `<div class="card empty">Consolidated analysis is not available yet — required documents are still pending.</div>`;
+  const banner = `<div class="ai-banner"><b>AI Document &amp; Image Analysis</b><br><small>Four specialised AI agents analyse the claim documents and images to detect damage, estimate repair cost and identify potential fraud indicators. Each agent's output is mapped into the consolidated findings below.</small></div>${runBar(d)}<div class="agents">${cards}</div>`;
+  if (!a) return banner + `<div class="card empty">Consolidated analysis is not available yet - run the AI agents above to generate it.</div>`;
   const fr = by.fraud, rp = by.repair, im = by.img;
   const tag = k => { const g = AGENTS.find(x => x.key === k); return `<span class="chip" style="--ac:${g.color}"><img class="mini" alt="" src="${svgUri(g.avatar_svg)}">${esc(g.name)}</span>`; };
   const all = d.runs.filter(r => r.agent_key !== "uw").flatMap(r => r.findings.map(f => ({ ...f, k: r.agent_key })));
@@ -242,7 +270,7 @@ function aiTab(d) {
 }
 const ACTIONABLE = ["New", "Pending Underwriting", "In Review", "Pending Documents"];
 function decision(d) {
-  const a = d.ai, c = d.c, rej = a && a.recommendation.startsWith("Reject");
+  const a = d.runs.some(x => x.agent_key !== "uw") ? d.ai : null, c = d.c, rej = a && a.recommendation.startsWith("Reject");
   const rec = a ? `<div class="reco ${rej ? "rej" : ""}"><h3>${rej ? "✕" : "✔"} ${esc(a.recommendation)}</h3><small>${esc(a.recommendation_note)}</small></div>
     <div class="card" style="margin-bottom:14px"><h4>Recommended Actions</h4><ul class="ul ${rej ? "x" : ""}">${a.recommended_actions.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>` : `<div class="card empty" style="margin-bottom:14px">No AI recommendation yet (documents pending).</div>`;
   let form;
@@ -277,6 +305,7 @@ function timeline(d) {
 }
 function bind(tab, d) {
   const id = d.c.id;
+  if (tab === "ai") bindRun(d);
   document.querySelectorAll("[data-i]").forEach(el => el.onclick = () => { const x = d.docs.find(y => y.id === el.dataset.i); modal(`<img src="${imgSrc(x)}"><p><b>${esc(x.title)}</b></p>${x.credit ? `<p style="color:var(--mut);font-size:12px">${esc(x.credit)}${/^Uploaded/.test(x.credit) ? "" : ". Plates replaced with sample plates."}</p>` : ""}`); });
   document.querySelectorAll("[data-v]").forEach(el => el.onclick = () => { const x = d.docs.find(y => y.id === el.dataset.v); if (x.storage_path) modal(/^image\//.test(x.mime) ? `<img src="${fileUrl(x)}"><p><b>${esc(x.title)}</b> · ${esc(x.file_name)}</p>` : `<iframe src="${fileUrl(x)}"></iframe>`); else modal(`<iframe sandbox srcdoc="${esc(x.content)}"></iframe>`); });
   document.querySelectorAll("[data-d]").forEach(el => el.onclick = () => { const x = d.docs.find(y => y.id === el.dataset.d); if (x.storage_path) window.open(fileUrl(x), "_blank"); else download(x.file_name, x.mime, x.content); });
