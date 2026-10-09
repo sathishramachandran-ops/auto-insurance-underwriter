@@ -223,7 +223,7 @@ function decision(d) {
   else form = `<div class="card empty">No decision is required at this stage (status: ${esc(c.status)}).</div>`;
   const g = AGENTS.find(x => x.key === "uw"), ur = d.runs.find(x => x.agent_key === "uw");
   const mt = ur?.metrics || {};
-  const stats = ur ? `<div class="tiles" style="margin-bottom:14px"><div class="tile"><small>Approval authority</small><b style="font-size:17px">${esc(mt.authority_level || "—")}</b></div><div class="tile"><small>Estimated payable (after deductible)</small><b style="font-size:17px">${money(mt.estimated_payable_aed)}</b></div><div class="tile"><small>Agent confidence</small><b style="font-size:17px">${ur.confidence}%</b></div></div>` : "";
+  const stats = ur ? `<div class="tiles" style="margin-bottom:14px"><div class="tile"><small>Approval authority</small><b style="font-size:17px">${esc(mt.authority_level || "—")}</b></div><div class="tile"><small>Estimated payable (after deductible)</small><b style="font-size:17px">${Number(mt.estimated_payable_aed) > 0 ? money(mt.estimated_payable_aed) : "Not payable"}</b></div><div class="tile"><small>Agent confidence</small><b style="font-size:17px">${ur.confidence}%</b></div></div>` : "";
   return (g ? `<div class="ai-banner"><b>Underwriting Advisor - AI agent</b><br><small>UnderwriteIQ reads the four analysis agents' outputs and recommends the decision, conditions and actions below. The human underwriter makes the final decision.</small></div><div class="agents one">${agentCard(g, ur)}</div>${stats}` : "") + rec + form;
 }
 function garage(d) {
