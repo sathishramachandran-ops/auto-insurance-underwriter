@@ -8,7 +8,7 @@ const detailCache = {};
 
 // ---------- helpers ----------
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const money = n => "$" + Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: 0 });
+const money = n => "AED " + Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: 0 });
 const fdate = d => d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }).replace(/ /g, "-") : "—";
 const fdt = d => d ? new Date(d).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).replace(/(\d{4}),/, "$1") : "";
 const BADGE = { "Pending Underwriting": "b-pu", "In Review": "b-ir", "Approved": "b-ap", "Pending Documents": "b-pd", "Rejected": "b-rj", "Pending Garage Estimate": "b-pg", "Closed": "b-cl" };
@@ -214,7 +214,7 @@ function garage(d) {
   else if (c.status === "Approved") right = `<div class="final"><h4>Final Approval</h4><div style="color:var(--green);font-weight:600">✔ Claim Approved</div><div class="big">${money(net)}</div><small style="color:var(--mut)">Amount after ${money(c.deductible)} deductible</small><br><br><button class="btn" style="width:100%" id="rp">Release Payment</button></div>`;
   else if (c.status === "Pending Garage Estimate") right = `<div class="final"><h4>Final Approval</h4><p style="color:var(--mut)">Claim approved in principle. Waiting for the garage to submit the final repair estimate.</p><button class="btn" id="rg">Simulate garage estimate received</button></div>`;
   else right = `<div class="final"><h4>Final Approval</h4><p style="color:var(--mut)">Not available until the claim is approved (current status: ${esc(c.status)}).</p></div>`;
-  const left = d.gar.length ? `<table class="estimate"><thead><tr><th>Item</th><th class="r">Estimated Cost (USD)</th><th>Status</th></tr></thead><tbody>
+  const left = d.gar.length ? `<table class="estimate"><thead><tr><th>Item</th><th class="r">Estimated Cost (AED)</th><th>Status</th></tr></thead><tbody>
     ${d.gar.map(x => `<tr><td>${esc(x.item)}</td><td class="r">${money(x.estimated_cost)}</td><td><span class="${x.status === "Approved" ? "ok" : "pend"}">${x.status}</span></td></tr>`).join("")}
     <tr><td><b>Total</b></td><td class="r"><b>${money(total)}</b></td><td></td></tr><tr><td>Deductible</td><td class="r">− ${money(c.deductible)}</td><td></td></tr><tr><td><b>Net payable</b></td><td class="r"><b>${money(net)}</b></td><td></td></tr></tbody></table>
     <p style="color:var(--mut)">Garage: ${esc(c.garage_name)}</p>` : `<div class="empty">No garage estimate has been received yet.</div>`;
