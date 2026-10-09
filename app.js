@@ -14,6 +14,7 @@ const fdt = d => d ? new Date(d).toLocaleString("en-GB", { day: "2-digit", month
 const BADGE = { "Pending Underwriting": "b-pu", "In Review": "b-ir", "Approved": "b-ap", "Pending Documents": "b-pd", "Rejected": "b-rj", "Pending Garage Estimate": "b-pg", "Closed": "b-cl" };
 const badge = s => `<span class="badge ${BADGE[s] || ""}">${esc(s)}</span>`;
 const toast = m => { const t = document.getElementById("toast"); t.textContent = m; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 2600); };
+const imgSrc = x => x.storage_path ? `${URL_}/storage/v1/object/public/claim-photos/${x.storage_path}` : svgUri(x.content);
 const svgUri = s => "data:image/svg+xml;utf8," + encodeURIComponent(s);
 
 async function api(path) {
@@ -169,7 +170,7 @@ async function renderClaim(id, tab) {
   bind(tab, d);
 }
 const dl = rows => `<dl class="kv">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v == null || v === "" ? "—" : v}</dd>`).join("")}</dl>`;
-function carThumb(d) { const i = d.docs.find(x => x.kind === "image" && x.file_name === "front.svg"); return i ? `<img src="${svgUri(i.content)}" style="width:100%;border-radius:8px">` : ""; }
+function carThumb(d) { const i = d.docs.find(x => x.kind === "image" && x.file_name === "vehicle_1.jpg"); return i ? `<img src="${imgSrc(i)}" style="width:100%;border-radius:8px">` : ""; }
 function overview(d) {
   const c = d.c;
   return `<div class="grid2"><div class="card"><h4>Claim Information</h4>${dl([["Claim Type", esc(c.claim_type)], ["Accident Type", esc(c.accident_type)], ["Location", esc(c.location)], ["Description", esc(c.description)], ["Police report", esc(c.police_report_no)], ["Claimed amount", money(c.claimed_amount)], ["Assigned garage", esc(c.garage_name)]])}</div>
@@ -179,7 +180,7 @@ function overview(d) {
 function vehicle(d) { const c = d.c; return `<div class="grid2"><div class="card">${carThumb(d)}</div><div class="card"><h4>${esc(c.make_model)}</h4>${dl([["Reg No", esc(c.reg_no)], ["Year", c.vehicle_year], ["VIN", esc(c.vin)], ["Color", esc(c.color)], ["Damage area", esc(c.damage_area)], ["Registered owner", esc(c.insured_name)]])}</div></div>`; }
 function documents(d) {
   const imgs = d.docs.filter(x => x.kind === "image"), docs = d.docs.filter(x => x.kind === "document");
-  return `<div class="card" style="margin-bottom:16px"><h4>Images</h4><div class="gallery">${imgs.map((x, i) => `<figure data-i="${x.id}"><img src="${svgUri(x.content)}" alt=""><figcaption>${i + 1}. ${esc(x.title)}</figcaption></figure>`).join("")}</div></div>
+  return `<div class="card" style="margin-bottom:16px"><h4>Images</h4><p style="color:var(--mut);font-size:12px;margin:-6px 0 12px">Real photographs from Wikimedia Commons (credits shown on open). Plates replaced with sample Dubai plates; damage and scene photos are illustrative, not the insured vehicle.</p><div class="gallery">${imgs.map((x, i) => `<figure data-i="${x.id}"><img loading="lazy" src="${imgSrc(x)}" alt=""><figcaption>${i + 1}. ${esc(x.title)}</figcaption></figure>`).join("")}</div></div>
   <div class="card"><h4>Documents</h4>${docs.map(x => `<div class="doc"><span class="ic">📄</span><div><b>${esc(x.title)}</b><small>Uploaded: ${fdate(x.uploaded_on)}</small></div><div class="sp"><button class="btn ghost sm" data-v="${x.id}">View</button><button class="btn ghost sm" data-d="${x.id}">⤓ Download</button></div></div>`).join("") || `<div class="empty">No documents uploaded.</div>`}
   ${d.c.status === "Pending Documents" ? `<p style="color:var(--amber)">⚠ Registration certificate and driving license are still outstanding.</p>` : ""}</div>`;
 }
@@ -224,7 +225,7 @@ function timeline(d) {
 }
 function bind(tab, d) {
   const id = d.c.id;
-  document.querySelectorAll("[data-i]").forEach(el => el.onclick = () => { const x = d.docs.find(y => y.id === el.dataset.i); modal(`<img src="${svgUri(x.content)}"><p><b>${esc(x.title)}</b></p>`); });
+  document.querySelectorAll("[data-i]").forEach(el => el.onclick = () => { const x = d.docs.find(y => y.id === el.dataset.i); modal(`<img src="${imgSrc(x)}"><p><b>${esc(x.title)}</b></p>${x.credit ? `<p style="color:var(--mut);font-size:12px">${esc(x.credit)}. Registration plates digitally replaced with sample plates.</p>` : ""}`); });
   document.querySelectorAll("[data-v]").forEach(el => el.onclick = () => { const x = d.docs.find(y => y.id === el.dataset.v); modal(`<iframe sandbox srcdoc="${esc(x.content)}"></iframe>`); });
   document.querySelectorAll("[data-d]").forEach(el => el.onclick = () => { const x = d.docs.find(y => y.id === el.dataset.d); download(x.file_name, x.mime, x.content); });
   const act = (btn, fn, msg) => btn && (btn.onclick = async () => { btn.disabled = true; try { await fn(); toast(msg); claims = null; await renderClaim(id, btn.dataset.next || tab); } catch (e) { toast(e.message); btn.disabled = false; } });
