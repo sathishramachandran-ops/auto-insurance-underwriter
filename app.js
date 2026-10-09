@@ -180,7 +180,7 @@ function overview(d) {
 function vehicle(d) { const c = d.c; return `<div class="grid2"><div class="card">${carThumb(d)}</div><div class="card"><h4>${esc(c.make_model)}</h4>${dl([["Reg No", esc(c.reg_no)], ["Year", c.vehicle_year], ["VIN", esc(c.vin)], ["Color", esc(c.color)], ["Damage area", esc(c.damage_area)], ["Registered owner", esc(c.insured_name)]])}</div></div>`; }
 function documents(d) {
   const imgs = d.docs.filter(x => x.kind === "image"), docs = d.docs.filter(x => x.kind === "document");
-  return `<div class="card" style="margin-bottom:16px"><h4>Images</h4><p style="color:var(--mut);font-size:12px;margin:-6px 0 12px">Real photographs from Wikimedia Commons (credits shown on open). Plates replaced with sample Dubai plates; damage and scene photos are illustrative, not the insured vehicle.</p><div class="gallery">${imgs.map((x, i) => `<figure data-i="${x.id}"><img loading="lazy" src="${imgSrc(x)}" alt=""><figcaption>${i + 1}. ${esc(x.title)}</figcaption></figure>`).join("")}</div></div>
+  return `<div class="card" style="margin-bottom:16px"><h4>Images</h4><p style="color:var(--mut);font-size:12px;margin:-6px 0 12px">Real photographs of this vehicle model from Wikimedia Commons (credits shown on open). Plates replaced with sample Dubai plates; damage on the close-up and overview is simulated digitally.</p><div class="gallery">${imgs.map((x, i) => `<figure data-i="${x.id}"><img loading="lazy" src="${imgSrc(x)}" alt=""><figcaption>${i + 1}. ${esc(x.title)}</figcaption></figure>`).join("")}</div></div>
   <div class="card"><h4>Documents</h4>${docs.map(x => `<div class="doc"><span class="ic">📄</span><div><b>${esc(x.title)}</b><small>Uploaded: ${fdate(x.uploaded_on)}</small></div><div class="sp"><button class="btn ghost sm" data-v="${x.id}">View</button><button class="btn ghost sm" data-d="${x.id}">⤓ Download</button></div></div>`).join("") || `<div class="empty">No documents uploaded.</div>`}
   ${d.c.status === "Pending Documents" ? `<p style="color:var(--amber)">⚠ Registration certificate and driving license are still outstanding.</p>` : ""}</div>`;
 }
@@ -225,7 +225,7 @@ function timeline(d) {
 }
 function bind(tab, d) {
   const id = d.c.id;
-  document.querySelectorAll("[data-i]").forEach(el => el.onclick = () => { const x = d.docs.find(y => y.id === el.dataset.i); modal(`<img src="${imgSrc(x)}"><p><b>${esc(x.title)}</b></p>${x.credit ? `<p style="color:var(--mut);font-size:12px">${esc(x.credit)}. Registration plates digitally replaced with sample plates.</p>` : ""}`); });
+  document.querySelectorAll("[data-i]").forEach(el => el.onclick = () => { const x = d.docs.find(y => y.id === el.dataset.i); modal(`<img src="${imgSrc(x)}"><p><b>${esc(x.title)}</b></p>${x.credit ? `<p style="color:var(--mut);font-size:12px">${esc(x.credit)}. Plates replaced with sample plates.</p>` : ""}`); });
   document.querySelectorAll("[data-v]").forEach(el => el.onclick = () => { const x = d.docs.find(y => y.id === el.dataset.v); modal(`<iframe sandbox srcdoc="${esc(x.content)}"></iframe>`); });
   document.querySelectorAll("[data-d]").forEach(el => el.onclick = () => { const x = d.docs.find(y => y.id === el.dataset.d); download(x.file_name, x.mime, x.content); });
   const act = (btn, fn, msg) => btn && (btn.onclick = async () => { btn.disabled = true; try { await fn(); toast(msg); claims = null; await renderClaim(id, btn.dataset.next || tab); } catch (e) { toast(e.message); btn.disabled = false; } });
