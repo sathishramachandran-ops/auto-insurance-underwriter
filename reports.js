@@ -4,8 +4,8 @@
 const C = { blue: "#2a78d6", orange: "#eb6834", aqua: "#1baf7a", yellow: "#eda100", violet: "#4a3aa7", magenta: "#e87ba4", green: "#008300", red: "#e34948" };
 const AG = { doc: C.blue, img: C.orange, fraud: C.aqua, repair: C.yellow, uw: C.violet };
 const ST = { ok: "#16a34a", warn: "#d97706", risk: "#dc2626" };
-const ORDER = ["Pending Documents", "Pending Underwriting", "In Review", "Pending Garage Estimate", "Approved", "Closed", "Rejected"];
-const OPEN = ["Pending Underwriting", "In Review", "Pending Documents", "Pending Garage Estimate"];
+const ORDER = ["New", "Pending Documents", "Pending Underwriting", "In Review", "Pending Garage Estimate", "Approved", "Closed", "Rejected"];
+const OPEN = ["New", "Pending Underwriting", "In Review", "Pending Documents", "Pending Garage Estimate"];
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const aed = n => "AED " + Math.round(n || 0).toLocaleString("en-US");
 const k = n => n >= 1e6 ? (n / 1e6).toFixed(2) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "K" : String(Math.round(n || 0));

@@ -13,10 +13,11 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": 
 const money = n => "AED " + Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: 0 });
 const fdate = d => d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }).replace(/ /g, "-") : "—";
 const fdt = d => d ? new Date(d).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).replace(/(\d{4}),/, "$1") : "";
-const BADGE = { "Pending Underwriting": "b-pu", "In Review": "b-ir", "Approved": "b-ap", "Pending Documents": "b-pd", "Rejected": "b-rj", "Pending Garage Estimate": "b-pg", "Closed": "b-cl" };
+const BADGE = { "New": "b-new", "Pending Underwriting": "b-pu", "In Review": "b-ir", "Approved": "b-ap", "Pending Documents": "b-pd", "Rejected": "b-rj", "Pending Garage Estimate": "b-pg", "Closed": "b-cl" };
 const badge = s => `<span class="badge ${BADGE[s] || ""}">${esc(s)}</span>`;
 const toast = m => { const t = document.getElementById("toast"); t.textContent = m; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 2600); };
-const imgSrc = x => x.storage_path ? `${URL_}/storage/v1/object/public/claim-photos/${x.storage_path}` : svgUri(x.content);
+const fileUrl = x => `${URL_}/storage/v1/object/public/${x.bucket || "claim-photos"}/${x.storage_path}`;
+const imgSrc = x => x.storage_path ? fileUrl(x) : svgUri(x.content);
 const svgUri = s => "data:image/svg+xml;utf8," + encodeURIComponent(s);
 
 async function api(path) {
@@ -119,7 +120,7 @@ async function renderList(mode) {
   draw();
   function draw() {
     let rows = all;
-    if (mode === "queue") rows = rows.filter(c => c.assigned_to === user.id && ["Pending Underwriting", "In Review", "Pending Garage Estimate", "Approved", "Pending Documents"].includes(c.status));
+    if (mode === "queue") rows = rows.filter(c => (c.assigned_to === user.id || c.status === "New") && ["New", "Pending Underwriting", "In Review", "Pending Garage Estimate", "Approved", "Pending Documents"].includes(c.status));
     const cnt = s => all.filter(c => Array.isArray(s) ? s.includes(c.status) : c.status === s).length;
     const days = F.period === "all" ? 99999 : +F.period;
     const cutoff = Date.now() - days * 864e5;
@@ -129,10 +130,10 @@ async function renderList(mode) {
     const titles = { dashboard: ["Claims Dashboard", "Claim KPIs and the AI agent team processing them"], claims: ["All Claims", "Browse every claim in the system"], queue: ["My Queue", "Claims assigned to you that need action"] };
     const top = `<div class="top"><div><h2>${titles[mode][0]}</h2><p>${titles[mode][1]}</p></div><input class="search" id="q" placeholder="🔍 Search by claim number, policy no, vehicle no…" value="${esc(F.q)}"></div>`;
     const cards = mode === "dashboard" ? `<div class="stats">
-      ${[["Total Claims", all.length, null, ""], ["Pending Underwriting", cnt("Pending Underwriting"), "Pending Underwriting", "color:var(--amber)"], ["In Review", cnt("In Review"), "In Review", "color:var(--blue)"],
+      ${[["Total Claims", all.length, null, ""], ["New", cnt("New"), "New", "color:#0284c7"], ["Pending Underwriting", cnt("Pending Underwriting"), "Pending Underwriting", "color:var(--amber)"], ["In Review", cnt("In Review"), "In Review", "color:var(--blue)"],
          ["Approved", cnt(["Approved", "Closed"]), "Approved", "color:var(--green)"], ["Rejected", cnt("Rejected"), "Rejected", "color:var(--red)"]]
         .map(([l, n, s, st]) => `<div class="card stat ${F.status === s && s ? "on" : ""}" data-s="${s || ""}"><small>${l}</small><b style="${st}">${n}</b></div>`).join("")}</div>` : "";
-    const statuses = ["All Status", "Pending Underwriting", "In Review", "Pending Documents", "Pending Garage Estimate", "Approved", "Rejected", "Closed"];
+    const statuses = ["All Status", "New", "Pending Underwriting", "In Review", "Pending Documents", "Pending Garage Estimate", "Approved", "Rejected", "Closed"];
     shell(mode, `${cards}${mode === "dashboard" ? fleetHtml() : `<div class="card"><div class="toolbar"><h3>Claims List <small style="color:var(--mut);font-weight:400">(${list.length})</small></h3>
       <select id="fs">${statuses.map(s => `<option ${s === F.status ? "selected" : ""}>${s}</option>`).join("")}</select>
       <select id="fp">${[["30", "Last 30 days"], ["60", "Last 60 days"], ["90", "Last 90 days"], ["all", "All time"]].map(([v, l]) => `<option value="${v}" ${v === F.period ? "selected" : ""}>${l}</option>`).join("")}</select>
@@ -187,7 +188,9 @@ async function fetchDetail(id) {
 }
 async function renderClaim(id, tab) {
   shell("claims", `<div class="spin">Loading claim…</div>`);
-  const d = await fetchDetail(id); const c = d.c;
+  let d = await fetchDetail(id);
+  if (d.c.status === "New") { try { await rpc("uw_open_claim", { p_claim: id, p_user: user.id }); claims = null; delete detailCache[id]; d = await fetchDetail(id); toast("New claim opened - status moved to In Review"); refreshBadge(); } catch (_) { /* keep New */ } }
+  const c = d.c;
   const head = `<button class="back" id="bk">← Claim Details</button>
     <div class="head"><h2>${c.claim_no}</h2>${badge(c.status)}<button class="btn ghost sm" style="margin-left:auto" id="sh">⤴ Share</button></div>
     <div class="meta"><span>Policy No: <b>${c.policy_no}</b></span><span>Insured: <b>${esc(c.insured_name)}</b></span><span>Loss Date: <b>${fdate(c.loss_date)}</b></span><span>Reported On: <b>${fdate(c.reported_on)}</b></span></div>
@@ -200,18 +203,18 @@ async function renderClaim(id, tab) {
   bind(tab, d);
 }
 const dl = rows => `<dl class="kv">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v == null || v === "" ? "—" : v}</dd>`).join("")}</dl>`;
-function carThumb(d) { const i = d.docs.find(x => x.kind === "image" && x.file_name === "vehicle_1.jpg"); return i ? `<img src="${imgSrc(i)}" style="width:100%;border-radius:8px">` : ""; }
+function carThumb(d) { const i = d.docs.find(x => x.kind === "image" && x.file_name === "vehicle_1.jpg") || d.docs.find(x => x.kind === "image" && x.storage_path); return i ? `<img src="${imgSrc(i)}" style="width:100%;border-radius:8px">` : ""; }
 function overview(d) {
   const c = d.c;
-  return `<div class="grid2"><div class="card"><h4>Claim Information</h4>${dl([["Claim Type", esc(c.claim_type)], ["Accident Type", esc(c.accident_type)], ["Location", esc(c.location)], ["Description", esc(c.description)], ["Police report", esc(c.police_report_no)], ["Claimed amount", money(c.claimed_amount)], ["Assigned garage", esc(c.garage_name)]])}</div>
+  return `<div class="grid2"><div class="card"><h4>Claim Information</h4>${dl([["Claim Type", esc(c.claim_type)], ["Accident Type", esc(c.accident_type)], ["Location", esc(c.location)], ["Description", esc(c.description)], ["Loss time", esc(c.loss_time)], ["Injuries", c.injuries ? "Yes" : "No"], ["Police report", esc(c.police_report_no)], ["Claimed amount", money(c.claimed_amount)], ["Assigned garage", esc(c.garage_name)], ["Submitted via", c.source === "customer" ? "Customer portal (ClaimAssist)" : "Back office"]])}</div>
   <div class="card"><h4>Vehicle Information</h4><div class="grid2" style="grid-template-columns:150px 1fr">${carThumb(d)}${dl([["Make / Model", esc(c.make_model)], ["Reg No", esc(c.reg_no)], ["Year", c.vehicle_year], ["VIN", esc(c.vin)], ["Color", esc(c.color)]])}</div></div>
   <div class="card"><h4>Insured &amp; Policy</h4>${dl([["Insured", esc(c.insured_name)], ["Phone", esc(c.insured_phone)], ["Email", esc(c.insured_email)], ["Policy No", c.policy_no], ["Policy period", `${fdate(c.policy_start)} → ${fdate(c.policy_end)}`], ["Sum insured", money(c.sum_insured)], ["Deductible", money(c.deductible)]])}</div></div>`;
 }
 function vehicle(d) { const c = d.c; return `<div class="grid2"><div class="card">${carThumb(d)}</div><div class="card"><h4>${esc(c.make_model)}</h4>${dl([["Reg No", esc(c.reg_no)], ["Year", c.vehicle_year], ["VIN", esc(c.vin)], ["Color", esc(c.color)], ["Damage area", esc(c.damage_area)], ["Registered owner", esc(c.insured_name)]])}</div></div>`; }
 function documents(d) {
   const imgs = d.docs.filter(x => x.kind === "image"), docs = d.docs.filter(x => x.kind === "document");
-  return `<div class="card" style="margin-bottom:16px"><h4>Images</h4><p style="color:var(--mut);font-size:12px;margin:-6px 0 12px">Real photographs of this vehicle model from Wikimedia Commons (credits shown on open). Plates replaced with sample Dubai plates; damage on the close-up and overview is simulated digitally.</p><div class="gallery">${imgs.map((x, i) => `<figure data-i="${x.id}"><img loading="lazy" src="${imgSrc(x)}" alt=""><figcaption>${i + 1}. ${esc(x.title)}</figcaption></figure>`).join("")}</div></div>
-  <div class="card"><h4>Documents</h4>${docs.map(x => `<div class="doc"><span class="ic">📄</span><div><b>${esc(x.title)}</b><small>Uploaded: ${fdate(x.uploaded_on)}</small></div><div class="sp"><button class="btn ghost sm" data-v="${x.id}">View</button><button class="btn ghost sm" data-d="${x.id}">⤓ Download</button></div></div>`).join("") || `<div class="empty">No documents uploaded.</div>`}
+  return `<div class="card" style="margin-bottom:16px"><h4>Images</h4><p style="color:var(--mut);font-size:12px;margin:-6px 0 12px">${imgs.some(x => /^Uploaded/.test(x.credit || "")) ? "Photos uploaded by the customer through the ClaimAssist customer portal." : "Real photographs of this vehicle model from Wikimedia Commons (credits shown on open). Plates replaced with sample Dubai plates; damage on the close-up and overview is simulated digitally."}</p><div class="gallery">${imgs.map((x, i) => `<figure data-i="${x.id}"><img loading="lazy" src="${imgSrc(x)}" alt=""><figcaption>${i + 1}. ${esc(x.title)}</figcaption></figure>`).join("")}</div></div>
+  <div class="card"><h4>Documents</h4>${docs.map(x => `<div class="doc"><span class="ic">📄</span><div><b>${esc(x.title)}</b><small>Uploaded: ${fdate(x.uploaded_on)}${x.storage_path ? " · by customer" : ""}</small></div><div class="sp"><button class="btn ghost sm" data-v="${x.id}">View</button><button class="btn ghost sm" data-d="${x.id}">⤓ Download</button></div></div>`).join("") || `<div class="empty">No documents uploaded.</div>`}
   ${d.c.status === "Pending Documents" ? `<p style="color:var(--amber)">⚠ Registration certificate and driving license are still outstanding.</p>` : ""}</div>`;
 }
 const ICO = { ok: "✓", warn: "!", risk: "✕" };
@@ -237,7 +240,7 @@ function aiTab(d) {
   <div class="grid2"><div class="card"><h4>Key Findings</h4><ul class="fl big">${all.map(f => `<li class="l-${f.level}"><i>${ico[f.level]}</i><span>${esc(f.text)} ${tag(f.k)}</span></li>`).join("")}</ul></div>
   <div class="card"><h4>Damage Areas (AI Detection) ${tag("img")}</h4>${a.damage_areas.map(x => `<div style="padding:5px 0"><span class="dot dmg-${x.severity}"></span>${esc(x.name)} (${x.severity})</div>`).join("")}</div></div>`;
 }
-const ACTIONABLE = ["Pending Underwriting", "In Review", "Pending Documents"];
+const ACTIONABLE = ["New", "Pending Underwriting", "In Review", "Pending Documents"];
 function decision(d) {
   const a = d.ai, c = d.c, rej = a && a.recommendation.startsWith("Reject");
   const rec = a ? `<div class="reco ${rej ? "rej" : ""}"><h3>${rej ? "✕" : "✔"} ${esc(a.recommendation)}</h3><small>${esc(a.recommendation_note)}</small></div>
@@ -274,9 +277,9 @@ function timeline(d) {
 }
 function bind(tab, d) {
   const id = d.c.id;
-  document.querySelectorAll("[data-i]").forEach(el => el.onclick = () => { const x = d.docs.find(y => y.id === el.dataset.i); modal(`<img src="${imgSrc(x)}"><p><b>${esc(x.title)}</b></p>${x.credit ? `<p style="color:var(--mut);font-size:12px">${esc(x.credit)}. Plates replaced with sample plates.</p>` : ""}`); });
-  document.querySelectorAll("[data-v]").forEach(el => el.onclick = () => { const x = d.docs.find(y => y.id === el.dataset.v); modal(`<iframe sandbox srcdoc="${esc(x.content)}"></iframe>`); });
-  document.querySelectorAll("[data-d]").forEach(el => el.onclick = () => { const x = d.docs.find(y => y.id === el.dataset.d); download(x.file_name, x.mime, x.content); });
+  document.querySelectorAll("[data-i]").forEach(el => el.onclick = () => { const x = d.docs.find(y => y.id === el.dataset.i); modal(`<img src="${imgSrc(x)}"><p><b>${esc(x.title)}</b></p>${x.credit ? `<p style="color:var(--mut);font-size:12px">${esc(x.credit)}${/^Uploaded/.test(x.credit) ? "" : ". Plates replaced with sample plates."}</p>` : ""}`); });
+  document.querySelectorAll("[data-v]").forEach(el => el.onclick = () => { const x = d.docs.find(y => y.id === el.dataset.v); if (x.storage_path) modal(/^image\//.test(x.mime) ? `<img src="${fileUrl(x)}"><p><b>${esc(x.title)}</b> · ${esc(x.file_name)}</p>` : `<iframe src="${fileUrl(x)}"></iframe>`); else modal(`<iframe sandbox srcdoc="${esc(x.content)}"></iframe>`); });
+  document.querySelectorAll("[data-d]").forEach(el => el.onclick = () => { const x = d.docs.find(y => y.id === el.dataset.d); if (x.storage_path) window.open(fileUrl(x), "_blank"); else download(x.file_name, x.mime, x.content); });
   const act = (btn, fn, msg) => btn && (btn.onclick = async () => { btn.disabled = true; try { await fn(); toast(msg); claims = null; await renderClaim(id, btn.dataset.next || tab); } catch (e) { toast(e.message); btn.disabled = false; } });
   act(document.getElementById("dsub"), () => rpc("uw_submit_decision", { p_claim: id, p_decision: dsel.value, p_comments: dcm.value, p_uw: user.id }), "Decision submitted");
   act(document.getElementById("rg"), () => rpc("uw_receive_garage_estimate", { p_claim: id }), "Garage estimate received");
