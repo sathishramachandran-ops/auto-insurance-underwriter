@@ -65,7 +65,7 @@ async function mount(el, ctx) {
 
   B.sla = () => card("Decision SLA", "", `<div class="g2s">${sl("sla.decision_sla_hours", "Decision SLA", { min: 4, max: 168, step: 4, fmt: FMT.hrs })}${sl("sla.escalate_after_days", "Escalate after", { min: 1, max: 30, fmt: FMT.days })}</div><div class="live" id="slalive"></div>`) +
     card("Alerts & digests", "", `${sw("sla.notify_on_high_fraud", "Alert on High fraud risk", "Instant email and Slack alert to the SIU channel.")}${sw("sla.daily_digest", "Daily AI summary digest")}
-    <div class="fld"><label>Digest time</label>${pills("sla.digest_time", [["07:00", "07:00"], ["08:00", "08:00"], ["09:00", "09:00"], ["18:00", "18:00"]])}</div><div class="g2s">${txt("sla.notify_email", "Notification email", "name@insurer.com")}${txt("sla.slack_channel", "Slack channel", "#claims-ai")}</div>`);
+    <div class="fld"><label>Digest time</label>${pills("sla.digest_time", [["07:00", "07:00"], ["08:00", "08:00"], ["09:00", "09:00"], ["18:00", "18:00"]])}</div><div class="g2s">${txt("sla.notify_email", "Notification email", "name@insurer.com")}${txt("sla.slack_channel", "Slack channel", "#claims-ai")}</div><div class="fld"><button type="button" class="btn ghost sm" id="test-alert">✉️ Send test alert</button> <small id="test-alert-r" style="margin-left:8px;color:var(--mut)">Emails the saved notification address via SendGrid</small></div>`);
 
   B.privacy = () => card("Data protection", "", `${sw("privacy.pii_redaction", "Redact PII before sending to the model", "Emirates ID, phone and email are masked in prompts.")}${sw("privacy.audit_logging", "Audit logging", "Every AI run and settings change is recorded.")}${sw("privacy.store_prompts", "Store prompts and responses", "Keep full agent transcripts for troubleshooting.")}`) +
     card("Retention & residency", "", `<div class="fld"><label>Retention period</label>${pills("privacy.retention_days", [[90, "90 days"], [180, "180 days"], [365, "1 year"], [730, "2 years"]])}</div><div class="fld"><label>Data residency</label>${radios("privacy.data_residency", [["UAE (me-central)", "UAE", "me-central"], ["EU (Frankfurt)", "EU", "Frankfurt"], ["US (Virginia)", "US", "Virginia"]])}</div>`);
@@ -105,6 +105,12 @@ async function mount(el, ctx) {
     el.querySelector("#sb-save").onclick = async () => { const btn = el.querySelector("#sb-save"); btn.disabled = true; try { for (const s of secs) { const v = clone(draft[s]); delete v._sim; if (diff(s).length) await rpc("uw_save_setting", { p_key: s, p_value: v, p_user: user.name }); } await reload(); toast("Settings saved - applied to the next AI run"); } catch (e) { toast(e.message); btn.disabled = false; } };
   };
   const reload = async () => { const [r, a] = await Promise.all([api("uw_settings?select=*"), api("uw_settings_audit?select=*&order=changed_at.desc&limit=60")]); cfg = Object.fromEntries(r.map(x => [x.key, x.value])); draft = clone(cfg); log = a; draw(); };
+  el.addEventListener("click", async e => {
+    const b = e.target.closest("#test-alert"); if (!b) return;
+    b.disabled = true; const r = el.querySelector("#test-alert-r");
+    try { const x = await (await fetch(`${window.CONFIG.SUPABASE_URL}/functions/v1/uw-alert/test`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })).json(); const m = x.delivered ? `Sent to ${x.to}` : `Not delivered (${x.status || x.error})`; if (r) r.textContent = m; toast(m); }
+    catch (err) { toast("Alert failed: " + err.message); } finally { b.disabled = false; }
+  });
   el.addEventListener("input", e => {
     const t = e.target;
     if (t.dataset.sim) { const sec = t.dataset.sim === "fraud" ? "fraud" : "approval"; draft[sec]._sim = +t.value; paint(); return; }
