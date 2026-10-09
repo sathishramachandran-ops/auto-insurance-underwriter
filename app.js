@@ -5,6 +5,7 @@ const $app = document.getElementById("app");
 let user = JSON.parse(sessionStorage.getItem("uw_user") || "null");
 let claims = null;            // cached list
 const detailCache = {};
+let AGENTS = null;
 
 // ---------- helpers ----------
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -147,13 +148,14 @@ function renderSettings() {
 // ---------- claim details ----------
 const TABS = [["overview", "Overview"], ["vehicle", "Vehicle"], ["documents", "Documents & Images"], ["ai", "AI Analysis"], ["decision", "Underwriting Decision"], ["garage", "Garage Estimate"], ["timeline", "Timeline"]];
 async function fetchDetail(id) {
-  const [c, docs, ai, dec, gar, pay, tl] = await Promise.all([
+  if (!AGENTS) AGENTS = await api("uw_ai_agents?select=*&order=sort_order");
+  const [c, docs, ai, dec, gar, pay, tl, runs] = await Promise.all([
     api(`uw_claims?id=eq.${id}&select=*`), api(`uw_claim_documents?claim_id=eq.${id}&select=*&order=sort_order`),
     api(`uw_ai_analysis?claim_id=eq.${id}&select=*`), api(`uw_decisions?claim_id=eq.${id}&select=*`),
     api(`uw_garage_estimates?claim_id=eq.${id}&select=*&order=sort_order`), api(`uw_payments?claim_id=eq.${id}&select=*`),
-    api(`uw_timeline?claim_id=eq.${id}&select=*&order=step_no`)]);
+    api(`uw_timeline?claim_id=eq.${id}&select=*&order=step_no`), api(`uw_ai_agent_runs?claim_id=eq.${id}&select=*`)]);
   if (!c[0]) throw new Error("Claim not found");
-  return detailCache[id] = { c: c[0], docs, ai: ai[0], dec: dec[0], gar, pay: pay[0], tl };
+  return detailCache[id] = { c: c[0], docs, ai: ai[0], dec: dec[0], gar, pay: pay[0], tl, runs };
 }
 async function renderClaim(id, tab) {
   shell("claims", `<div class="spin">Loading claim…</div>`);
@@ -185,11 +187,25 @@ function documents(d) {
   ${d.c.status === "Pending Documents" ? `<p style="color:var(--amber)">⚠ Registration certificate and driving license are still outstanding.</p>` : ""}</div>`;
 }
 function aiTab(d) {
-  const a = d.ai; if (!a) return `<div class="card empty">AI analysis has not run yet — required documents are still pending.</div>`;
-  return `<div class="ai-banner"><b>AI Document &amp; Image Analysis</b><br><small>Our AI analysed the images and documents to detect damage, estimate repair cost and identify potential fraud indicators.</small></div>
-  <div class="tiles"><div class="tile"><small>Damage Severity</small><b class="t-${a.damage_severity}">${a.damage_severity}</b></div><div class="tile"><small>Estimated Repair Cost</small><b>${money(a.repair_min)} – ${money(a.repair_max)}</b></div><div class="tile"><small>Fraud Risk</small><b class="t-${a.fraud_risk === "Low" ? "Low" : a.fraud_risk === "Medium" ? "Medium" : "High"}">${a.fraud_risk}</b></div></div>
-  <div class="grid2"><div class="card"><h4>Key Findings</h4><ul class="ul">${a.findings.map(f => `<li>${esc(f)}</li>`).join("")}</ul></div>
-  <div class="card"><h4>Damage Areas (AI Detection)</h4>${a.damage_areas.map(x => `<div style="padding:5px 0"><span class="dot dmg-${x.severity}"></span>${esc(x.name)} (${x.severity})</div>`).join("")}</div></div>`;
+  const a = d.ai, by = Object.fromEntries(d.runs.map(r => [r.agent_key, r]));
+  const ico = { ok: "✓", warn: "!", risk: "✕" };
+  const cards = AGENTS.map(g => {
+    const r = by[g.key] || { status: "Not run", findings: [], metrics: {} };
+    return `<div class="agent" style="--ac:${g.color}"><div class="ah"><div class="aico">${g.icon}</div><div style="flex:1"><b>${esc(g.name)}</b><small>${esc(g.role)}</small></div><span class="st st-${r.status.replace(/\s/g, "")}">${esc(r.status)}</span></div>
+      <p class="atag">${esc(g.tagline)}</p><div class="alab">Scope</div><ul class="scope">${g.scope.map(x => `<li>${esc(x)}</li>`).join("")}</ul>
+      <div class="alab">Output</div><div class="ahead">${esc(r.headline || "—")}</div>
+      <ul class="fl">${r.findings.map(f => `<li class="${f.level}"><i>${ico[f.level]}</i><span>${esc(f.text)}</span></li>`).join("") || `<li class="pend"><i>…</i><span>No output yet.</span></li>`}</ul>
+      <div class="afoot">${r.confidence ? `<div class="conf"><span style="width:${r.confidence}%"></span></div><small>Confidence ${r.confidence}%</small>` : ""}<small>${r.duration_ms ? (r.duration_ms / 1000).toFixed(1) + "s · " : ""}${r.inputs ? esc(r.inputs) + " · " : ""}${esc(g.model)}</small></div></div>`;
+  }).join("");
+  const banner = `<div class="ai-banner"><b>AI Document &amp; Image Analysis</b><br><small>Four specialised AI agents analysed the claim documents and images to detect damage, estimate repair cost and identify potential fraud indicators. Each agent's output is mapped into the consolidated findings below.</small></div><div class="agents">${cards}</div>`;
+  if (!a) return banner + `<div class="card empty">Consolidated analysis is not available yet — required documents are still pending.</div>`;
+  const fr = by.fraud, rp = by.repair, im = by.img;
+  const tag = k => { const g = AGENTS.find(x => x.key === k); return `<span class="chip" style="--ac:${g.color}">${g.icon} ${esc(g.name)}</span>`; };
+  const all = d.runs.flatMap(r => r.findings.map(f => ({ ...f, k: r.agent_key })));
+  return banner + `<h4 style="margin:6px 0 10px">Consolidated result</h4>
+  <div class="tiles"><div class="tile"><small>Damage Severity ${tag("img")}</small><b class="t-${a.damage_severity}">${a.damage_severity}</b></div><div class="tile"><small>Estimated Repair Cost ${tag("repair")}</small><b>${money(a.repair_min)} – ${money(a.repair_max)}</b></div><div class="tile"><small>Fraud Risk ${tag("fraud")}</small><b class="t-${a.fraud_risk}">${a.fraud_risk}${fr?.metrics?.score != null ? ` <span style="font-size:13px;color:var(--mut)">(${fr.metrics.score}/100)</span>` : ""}</b></div></div>
+  <div class="grid2"><div class="card"><h4>Key Findings</h4><ul class="fl big">${all.map(f => `<li class="${f.level}"><i>${ico[f.level]}</i><span>${esc(f.text)} ${tag(f.k)}</span></li>`).join("")}</ul></div>
+  <div class="card"><h4>Damage Areas (AI Detection) ${tag("img")}</h4>${a.damage_areas.map(x => `<div style="padding:5px 0"><span class="dot dmg-${x.severity}"></span>${esc(x.name)} (${x.severity})</div>`).join("")}</div></div>`;
 }
 const ACTIONABLE = ["Pending Underwriting", "In Review", "Pending Documents"];
 function decision(d) {
