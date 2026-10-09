@@ -8,6 +8,7 @@ const detailCache = {};
 let AGENTS = null, STATS = [];
 
 // ---------- helpers ----------
+const LOGO = (n = 34) => `<svg width="${n}" height="${n}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><defs><linearGradient id="ia" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1d5fe0"/><stop offset="1" stop-color="#0e9f9a"/></linearGradient><linearGradient id="ib" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#dbe9ff"/></linearGradient></defs><rect width="48" height="48" rx="12" fill="url(#ia)"/><path d="M24 7.5 38.5 13v11c0 8.2-6.2 14.2-14.5 17.3C15.700 38.200 9.500 32.200 9.500 24V13Z" fill="url(#ib)"/><path d="M15.500 29.500v-3.200l2.200-5.100c.5-1.100 1.500-1.800 2.700-1.800h7.200c1.200 0 2.200.7 2.700 1.800l2.200 5.100v3.200h-2.600v-1.700H18.100v1.700Z" fill="#1d5fe0"/><path d="m19.400 22.200 1.200-2.600c.2-.4.600-.6 1-.6h5.600c.4 0 .8.200 1 .6l1.200 2.600Z" fill="url(#ib)"/><circle cx="19.600" cy="27.200" r="1.300" fill="#fff"/><circle cx="28.400" cy="27.200" r="1.300" fill="#fff"/><path d="m37.500 5.500.9 2.400 2.400.9-2.400.9-.9 2.400-.9-2.400-2.400-.9 2.400-.9Z" fill="#ffd54a" stroke="#fff" stroke-width=".6"/></svg>`;
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const money = n => "AED " + Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: 0 });
 const fdate = d => d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }).replace(/ /g, "-") : "—";
@@ -55,7 +56,7 @@ async function route() {
 // ---------- shell / login ----------
 function renderLogin() {
   $app.innerHTML = `<div class="login-wrap"><form class="login-card" id="lf">
-    <div class="logo">☂️🚗</div><h1>Auto Insurance</h1><div class="sub">Claim Underwriter Portal</div>
+    <div class="logo">${LOGO(64)}</div><h1 class="wm-l"><b>Claim</b><em>Assist</em></h1><div class="sub">Claim Underwriter Portal</div>
     <h3 style="margin:0 0 4px">Welcome Back</h3><div class="sub" style="margin-bottom:8px">Sign in to access claims and underwriting tools</div>
     <label>Email / Username</label><input id="em" type="email" placeholder="john.doe@insurer.com" value="sathish.kumar@insurer.com" required>
     <label>Password</label><div class="pw"><input id="pw" type="password" placeholder="Enter your password" value="Underwriter@123" required><span id="eye">👁</span></div>
@@ -80,7 +81,7 @@ function shell(active, inner, top = "") {
   const ini = user.name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
   const nav = [["dashboard", "Dashboard", "▦"], ["claims", "Claims", "▤"], ["queue", "My Queue", "☰"], ["alerts", "My Alerts", "🔔"], ["reports", "Reports", "◔"], ["settings", "Settings", "⚙"]]
     .map(([k, l, i]) => `<a href="#/${k}" class="${active === k ? "on" : ""}">${i}&nbsp; ${l}${k === "alerts" ? `<span class="nbadge ${badgeState.crit ? "crit" : ""}" id="nb" style="${badgeState.n ? "" : "display:none"}">${badgeState.n}</span>` : ""}</a>`).join("");
-  $app.innerHTML = `<div class="shell"><aside class="side"><div class="brand"><i>☂️</i> Auto Insurance</div><nav class="nav">${nav}</nav>
+  $app.innerHTML = `<div class="shell"><aside class="side"><div class="brand">${LOGO(36)}<div class="wm"><span><b>Claim</b><em>Assist</em></span><small>Claims intelligence</small></div></div><nav class="nav">${nav}</nav>
     <div class="me"><div class="av">${ini}</div><div><b>${esc(user.name)}</b><small>${esc(user.role)}</small></div><button title="Sign out" id="so">⏻</button></div></aside>
     <main class="main">${top}${inner}</main></div>`;
   refreshBadge();
