@@ -71,3 +71,14 @@ h4{margin:0 0 12px;font-size:15px}
 @keyframes pulse{0%{box-shadow:0 0 0 0 #16a34a88}70%{box-shadow:0 0 0 7px #16a34a00}100%{box-shadow:0 0 0 0 #16a34a00}}
 .astats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px 8px;margin:12px 0 0;padding-top:12px;border-top:1px solid #eef1f6}.astats small{display:block;color:var(--mut);font-size:10.5px}.astats b{font-size:14px}
 @media(max-width:1200px){.agents.three{grid-template-columns:1fr 1fr}.tiles.five{grid-template-columns:repeat(3,1fr)}}@media(max-width:900px){.agents.three{grid-template-columns:1fr}.tiles.five{grid-template-columns:1fr 1fr}}
+
+/* reports */
+.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:16px}.kpi small{color:var(--mut)}.kpi b{display:block;font-size:24px;margin:4px 0 2px}.kpi .sub{font-size:11.5px}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}.pn .pt{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px}.pn .pt h4{margin:0}.pn .pt small{color:var(--mut)}.pn.wide{grid-column:1/-1}
+.hb .hr{display:grid;grid-template-columns:150px 1fr 96px;align-items:center;gap:10px;padding:5px 0;font-size:13px}.hb .hl{color:#3b4557;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.hb b{text-align:right;font-weight:600}
+.hb .ht{height:12px;background:#eef1f6;border-radius:6px;overflow:hidden;display:flex;gap:2px}.hb .hf{display:block;height:100%;border-radius:0 4px 4px 0;min-width:2px}.hb .stk{display:flex;gap:2px;height:100%}.hb .stk .hf{border-radius:3px}
+.lg{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:10px;font-size:12px;color:#3b4557}.lg i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px}
+.dn{display:flex;gap:18px;align-items:center}.lg.v{flex-direction:column;flex-wrap:nowrap;gap:8px;margin:0;flex:1;list-style:none;padding:0}.lg.v li{display:flex;align-items:center;gap:6px}.lg.v li b{margin-left:auto}.lg.v li small{color:var(--mut);width:34px;text-align:right}
+.ch{width:100%;height:auto;display:block}.ch text{font-family:inherit}
+.tt{position:fixed;display:none;background:#14213d;color:#fff;font-size:12px;padding:6px 10px;border-radius:6px;pointer-events:none;z-index:99;max-width:260px}
+@media(max-width:1100px){.kpis{grid-template-columns:repeat(3,1fr)}.g2{grid-template-columns:1fr}}@media(max-width:700px){.kpis{grid-template-columns:1fr 1fr}.hb .hr{grid-template-columns:100px 1fr 54px}}

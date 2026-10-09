@@ -45,7 +45,7 @@ async function route() {
     if (page === "claim") return await renderClaim(id, tab || "overview");
     if (page === "claims") return await renderList("claims");
     if (page === "queue") return await renderList("queue");
-    if (page === "reports") return await renderReports();
+    if (page === "reports") return await renderReports(id);
     if (page === "settings") return renderSettings();
     return await renderList("dashboard");
   } catch (e) { shell("", `<div class="card empty">Failed to load: ${esc(e.message)}</div>`); }
@@ -150,19 +150,11 @@ function download(name, mime, content) {
 }
 
 // ---------- reports / settings ----------
-async function renderReports() {
-  shell("reports", `<div class="spin">Loading…</div>`);
-  const all = await loadClaims(true);
-  const ai = await api("uw_ai_analysis?select=claim_id,damage_severity,fraud_risk,repair_min,repair_max");
-  const pays = await api("uw_payments?select=amount");
-  const by = (arr, k) => arr.reduce((m, x) => (m[x[k]] = (m[x[k]] || 0) + 1, m), {});
-  const bars = (obj, max) => Object.entries(obj).map(([k, v]) => `<div class="bar"><span>${esc(k)}</span><div class="fill" style="width:${Math.max(4, v / max * 320)}px"></div><b>${v}</b></div>`).join("");
-  const st = by(all, "status"), sev = by(ai, "damage_severity"), fr = by(ai, "fraud_risk");
-  shell("reports", `<div class="grid2"><div class="card bars"><h4>Claims by status</h4>${bars(st, Math.max(...Object.values(st)))}</div>
-    <div class="card bars"><h4>AI damage severity</h4>${bars(sev, Math.max(...Object.values(sev)))}<h4 style="margin-top:20px">Fraud risk</h4>${bars(fr, Math.max(...Object.values(fr)))}</div></div>
-    <div class="stats" style="margin-top:16px;grid-template-columns:repeat(3,1fr)"><div class="card"><small>Total claims</small><b style="font-size:28px;display:block">${all.length}</b></div>
-    <div class="card"><small>Payments released</small><b style="font-size:28px;display:block">${pays.length}</b></div><div class="card"><small>Total paid out</small><b style="font-size:28px;display:block">${money(pays.reduce((s, p) => s + +p.amount, 0))}</b></div></div>`,
-    `<div class="top"><div><h2>Reports</h2><p>Portfolio summary from live Supabase data</p></div></div>`);
+async function renderReports(tab) {
+  shell("reports", `<div class="spin">Loading reports…</div>`);
+  const D = await Reports.load(api);
+  shell("reports", `<div id="rp-root"></div>`);
+  Reports.mount(document.getElementById("rp-root"), D, go, tab);
 }
 function renderSettings() {
   shell("settings", `<div class="card"><dl class="kv"><dt>Name</dt><dd>${esc(user.name)}</dd><dt>Email</dt><dd>${esc(user.email)}</dd><dt>Role</dt><dd>${esc(user.role)}</dd><dt>Data source</dt><dd>Supabase (${esc(URL_)})</dd></dl></div>`,
