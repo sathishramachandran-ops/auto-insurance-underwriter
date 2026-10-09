@@ -5,13 +5,23 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Auto Insurance – Claim Underwriter Portal</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>☂</text></svg>">
-<link rel="stylesheet" href="style.css?v=13">
+<script>
+// GitHub Pages caches index.html for ~10 min; load assets with a per-minute version so deploys show up on a normal refresh.
+(function () {
+  var v = Math.floor(Date.now() / 60000);
+  var l = document.createElement("link"); l.rel = "stylesheet"; l.href = "style.css?t=" + v; document.head.appendChild(l);
+  window.__v = v;
+})();
+</script>
 </head>
 <body>
 <div id="app"></div>
 <div id="toast" class="toast"></div>
-<script src="config.js?v=13"></script>
-<script src="reports.js?v=13"></script>
-<script src="app.js?v=13"></script>
+<script>
+(function () {
+  var files = ["config.js", "reports.js", "app.js"], i = 0;
+  (function next() { if (i >= files.length) return; var s = document.createElement("script"); s.src = files[i++] + "?t=" + window.__v; s.onload = next; document.body.appendChild(s); })();
+})();
+</script>
 </body>
 </html>
