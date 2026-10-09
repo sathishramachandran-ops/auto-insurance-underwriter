@@ -46,6 +46,7 @@ async function route() {
     if (page === "claims") return await renderList("claims");
     if (page === "queue") return await renderList("queue");
     if (page === "reports") return await renderReports(id);
+    if (page === "alerts") return await renderAlerts(id);
     if (page === "settings") return renderSettings(id);
     return await renderList("dashboard");
   } catch (e) { shell("", `<div class="card empty">Failed to load: ${esc(e.message)}</div>`); }
@@ -71,13 +72,18 @@ function renderLogin() {
     } catch (er) { document.getElementById("le").textContent = er.message; b.disabled = false; b.textContent = "Login"; }
   };
 }
+let badgeState = { n: 0, crit: 0 };
+async function refreshBadge() {
+  try { const r = await api("uw_alerts?select=severity,status&status=neq.resolved"); badgeState = { n: r.length, crit: r.filter(a => a.severity === "critical").length }; const b = document.getElementById("nb"); if (b) { b.textContent = badgeState.n; b.style.display = badgeState.n ? "" : "none"; b.classList.toggle("crit", badgeState.crit > 0); } } catch (_) { /* ignore */ }
+}
 function shell(active, inner, top = "") {
   const ini = user.name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
-  const nav = [["dashboard", "Dashboard", "▦"], ["claims", "Claims", "▤"], ["queue", "My Queue", "☰"], ["reports", "Reports", "◔"], ["settings", "Settings", "⚙"]]
-    .map(([k, l, i]) => `<a href="#/${k}" class="${active === k ? "on" : ""}">${i}&nbsp; ${l}</a>`).join("");
+  const nav = [["dashboard", "Dashboard", "▦"], ["claims", "Claims", "▤"], ["queue", "My Queue", "☰"], ["alerts", "My Alerts", "🔔"], ["reports", "Reports", "◔"], ["settings", "Settings", "⚙"]]
+    .map(([k, l, i]) => `<a href="#/${k}" class="${active === k ? "on" : ""}">${i}&nbsp; ${l}${k === "alerts" ? `<span class="nbadge ${badgeState.crit ? "crit" : ""}" id="nb" style="${badgeState.n ? "" : "display:none"}">${badgeState.n}</span>` : ""}</a>`).join("");
   $app.innerHTML = `<div class="shell"><aside class="side"><div class="brand"><i>☂️</i> Auto Insurance</div><nav class="nav">${nav}</nav>
     <div class="me"><div class="av">${ini}</div><div><b>${esc(user.name)}</b><small>${esc(user.role)}</small></div><button title="Sign out" id="so">⏻</button></div></aside>
     <main class="main">${top}${inner}</main></div>`;
+  refreshBadge();
   document.getElementById("so").onclick = () => { sessionStorage.removeItem("uw_user"); user = null; location.hash = ""; renderLogin(); };
 }
 
@@ -150,6 +156,10 @@ function download(name, mime, content) {
 }
 
 // ---------- reports / settings ----------
+async function renderAlerts(id) {
+  shell("alerts", `<div id="al-root"></div>`);
+  await Alerts.mount(document.getElementById("al-root"), { id, api, rpc, user, toast, go, claims: () => loadClaims(), badge: refreshBadge });
+}
 async function renderReports(tab) {
   shell("reports", `<div class="spin">Loading reports…</div>`);
   const D = await Reports.load(api);

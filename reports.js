@@ -187,4 +187,5 @@ function mount(el, D, go, tab) {
   draw();
 }
 window.Reports = { load, mount };
+window.Charts = { columns, hbar, bindTip };
 })();
