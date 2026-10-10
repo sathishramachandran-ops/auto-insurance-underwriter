@@ -178,3 +178,10 @@ code{background:#eef1f6;padding:1px 6px;border-radius:4px;font-size:11.5px}
 .cm .cav svg{border-radius:9px}
 @media(max-width:900px){.cpanel{left:0!important}.chat-open .main{margin-left:0!important}}
 td:last-child,th:last-child{white-space:nowrap}.chat-open td,.chat-open th{padding-left:6px;padding-right:6px;font-size:12.5px}.chat-open table td:first-child b{white-space:nowrap}
+/* launcher bottom-right, level with the profile card; panel docks on the right beside it */
+.cfab{left:auto!important;right:84px!important;bottom:22px!important}
+.cpanel{left:auto!important;right:12px!important;transform:translateX(calc(100% + 30px))}.cpanel.open{transform:none}
+.chat-open .main{margin-left:0!important;margin-right:calc(var(--cw) + 12px)!important}
+.chat-open .toast{left:calc((100% - var(--cw)) / 2)}
+@media(max-width:900px){.cpanel{right:0!important}.chat-open .main{margin-right:0!important}}
+td b{white-space:nowrap}
