@@ -19,7 +19,7 @@
 <div id="toast" class="toast"></div>
 <script>
 (function () {
-  var files = ["config.js", "reports.js", "settings.js", "alerts.js", "assistant.js", "app.js"], i = 0;
+  var files = ["config.js", "reports.js", "settings.js", "alerts.js", "traces.js", "assistant.js", "app.js"], i = 0;
   (function next() { if (i >= files.length) return; var s = document.createElement("script"); s.src = files[i++] + "?t=" + window.__v; s.onload = next; document.body.appendChild(s); })();
 })();
 </script>

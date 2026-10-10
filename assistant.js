@@ -164,6 +164,7 @@ const SUG = {
   dashboard: ["Which claims need my attention today?", "How are the AI agents performing?", "Show high fraud risk claims", "Open the latest new claim"],
   claims: ["Show claims in review", "Which claims are older than the SLA?", "Show Toyota claims over 10k", "How many claims are pending documents?"],
   queue: ["What should I work on first?", "Show my claims needing senior sign-off", "Which of my claims are overdue?", "How many of my claims are in review?"],
+  traces: ["Which agent is slowest?", "How many tokens have the agents used?", "Show failed agent runs", "How is FraudShield performing?"],
   alerts: ["Show critical alerts", "Which agent has latency alerts?", "Any token budget alerts?", "Show fraud risk alerts"],
   "reports:portfolio": ["How many claims are open?", "What is the approval rate?", "Show the financial report", "Which vehicle models have the most claims?"],
   "reports:agents": ["Which agent is slowest?", "How many tokens have the agents used?", "Show latency alerts", "How is DocuMind performing?"],
@@ -182,7 +183,7 @@ function sugFor() {
   const i = pageInfo();
   if (i.kind === "claim") { const n = i.c.claim_no, T = { overview: [`Summarize ${n}`, `Why is ${n} flagged?`, "Which documents are missing?", "Run AI agents on it"], vehicle: [`Summarize ${n}`, "Show its documents", `Why is ${n} flagged?`, "Run AI agents on it"], documents: ["Which documents are missing?", "Open the AI analysis tab", `Summarize ${n}`, "Is the garage estimate within the AI band?"], ai: [`Why is ${n} flagged?`, "Run AI agents on it", "Open the decision tab", "What does UnderwriteIQ recommend?"], decision: ["What does UnderwriteIQ recommend?", "Who needs to approve this claim?", "Open the AI analysis tab", "Show the timeline"], garage: ["Is the garage estimate within the AI band?", "Who needs to approve this claim?", "Open the decision tab", `Summarize ${n}`], timeline: ["Where is this claim in the process?", "Which documents are missing?", "Open the AI analysis tab", `Summarize ${n}`] }; return { title: `${n} · ${{ overview: "Overview", vehicle: "Vehicle", documents: "Documents", ai: "AI Analysis", decision: "Decision", garage: "Garage", timeline: "Timeline" }[i.tab] || "Claim"}`, list: T[i.tab] || T.overview }; }
   const key = ["reports", "settings"].includes(i.kind) ? `${i.kind}:${i.tab || (i.kind === "reports" ? "portfolio" : "profile")}` : i.kind;
-  const nice = { dashboard: "Dashboard", claims: "Claims", queue: "My Queue", alerts: "My Alerts" }[i.kind] || (key.replace(":", " · ").replace(/^./, c => c.toUpperCase()));
+  const nice = { dashboard: "Dashboard", claims: "Claims", queue: "My Queue", alerts: "My Alerts", traces: "Traces" }[i.kind] || (key.replace(":", " · ").replace(/^./, c => c.toUpperCase()));
   return { title: nice, list: SUG[key] || SUG[i.kind] || SUG.dashboard };
 }
 

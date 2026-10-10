@@ -58,6 +58,7 @@ async function route() {
     if (page === "reports") return await renderReports(id);
     if (page === "alerts") return await renderAlerts(id);
     if (page === "settings") return renderSettings(id);
+    if (page === "traces") return await renderTraces(id);
     return await renderList("dashboard");
   } catch (e) { shell("", `<div class="card empty">Failed to load: ${esc(e.message)}</div>`); }
 }
@@ -88,7 +89,7 @@ async function refreshBadge() {
 }
 function shell(active, inner, top = "") {
   const ini = user.name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
-  const nav = [["dashboard", "Dashboard", "▦"], ["claims", "Claims", "▤"], ["queue", "My Queue", "☰"], ["alerts", "My Alerts", "🔔"], ["reports", "Reports", "◔"], ["settings", "Settings", "⚙"]]
+  const nav = [["dashboard", "Dashboard", "▦"], ["claims", "Claims", "▤"], ["queue", "My Queue", "☰"], ["alerts", "My Alerts", "🔔"], ["reports", "Reports", "◔"], ["settings", "Settings", "⚙"], ["traces", "Traces", "⛓"]]
     .map(([k, l, i]) => `<a href="#/${k}" class="${active === k ? "on" : ""}">${i}&nbsp; ${l}${k === "alerts" ? `<span class="nbadge ${badgeState.crit ? "crit" : ""}" id="nb" style="${badgeState.n ? "" : "display:none"}">${badgeState.n}</span>` : ""}</a>`).join("");
   $app.innerHTML = `<div class="shell"><aside class="side"><div class="brand">${LOGO(36)}<div class="wm"><span><b>Claim</b><em>Assist</em></span><small>Claims intelligence</small></div></div><nav class="nav">${nav}</nav>
     <div class="me"><div class="avt">${AVATAR(user.name, 44)}</div><div><b>${esc(user.name)}</b><small>${esc(user.role)}</small></div><button title="Sign out" id="so">⏻</button></div></aside>
@@ -172,6 +173,10 @@ function download(name, mime, content) {
 async function renderAlerts(id) {
   shell("alerts", `<div id="al-root"></div>`);
   await Alerts.mount(document.getElementById("al-root"), { id, api, rpc, user, toast, go, claims: () => loadClaims(), badge: refreshBadge });
+}
+async function renderTraces(id) {
+  shell("traces", `<div id="tr-root"></div>`);
+  await Traces.mount(document.getElementById("tr-root"), { id, api, rpc, user, toast, go, claims: () => loadClaims() });
 }
 async function renderReports(tab) {
   shell("reports", `<div class="spin">Loading reports…</div>`);
