@@ -26,7 +26,7 @@ function gauge(score, med, high) { return `<div class="gau"><span style="width:$
 
 async function mount(el, ctx) {
   const { api, rpc, user, toast, go } = ctx;
-  let alerts = [], sel = ctx.id || null, f = { status: "open", sev: "all", type: "all" }, cfgFraud = { medium_threshold: 30, high_threshold: 60 };
+  const pre = window.__alertPreset || {}; window.__alertPreset = null; let alerts = [], sel = ctx.id || null, f = { status: pre.status || "open", sev: pre.sev || "all", type: pre.type || "all" }, cfgFraud = { medium_threshold: 30, high_threshold: 60 };
   const load = async (regen) => {
     if (regen) { try { await rpc("uw_generate_alerts", {}); } catch (_) { /* ignore */ } }
     alerts = await api("uw_alerts?select=*&order=created_at.desc");

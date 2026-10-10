@@ -186,6 +186,6 @@ function mount(el, D, go, tab) {
   };
   draw();
 }
-window.Reports = { load, mount };
+window.Reports = { load, mount, setPeriod: p => { per = p; } };
 window.Charts = { columns, hbar, bindTip };
 })();

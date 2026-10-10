@@ -5,7 +5,7 @@ const $app = document.getElementById("app");
 let user = JSON.parse(sessionStorage.getItem("uw_user") || "null");
 let claims = null;            // cached list
 const detailCache = {};
-let AGENTS = null, STATS = [];
+let AGENTS = null, STATS = [], AN = {}, FS = {};
 
 // ---------- helpers ----------
 const LOGO = (n = 34) => `<svg width="${n}" height="${n}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><defs><linearGradient id="ia" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1d5fe0"/><stop offset="1" stop-color="#0e9f9a"/></linearGradient><linearGradient id="ib" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#dbe9ff"/></linearGradient></defs><rect width="48" height="48" rx="12" fill="url(#ia)"/><path d="M24 7.5 38.5 13v11c0 8.2-6.2 14.2-14.5 17.3C15.700 38.200 9.500 32.200 9.500 24V13Z" fill="url(#ib)"/><path d="M15.500 29.500v-3.200l2.200-5.100c.5-1.100 1.500-1.800 2.700-1.800h7.200c1.200 0 2.200.7 2.700 1.800l2.200 5.100v3.200h-2.600v-1.700H18.100v1.700Z" fill="#1d5fe0"/><path d="m19.400 22.200 1.200-2.600c.2-.4.600-.6 1-.6h5.600c.4 0 .8.200 1 .6l1.200 2.600Z" fill="url(#ib)"/><circle cx="19.600" cy="27.200" r="1.300" fill="#fff"/><circle cx="28.400" cy="27.200" r="1.300" fill="#fff"/><path d="m37.500 5.500.9 2.400 2.400.9-2.400.9-.9 2.400-.9-2.400-2.400-.9 2.400-.9Z" fill="#ffd54a" stroke="#fff" stroke-width=".6"/></svg>`;
@@ -48,11 +48,12 @@ function go(h) { location.hash = h; }
 async function route() {
   if (!user) return renderLogin();
   if (!user._r) { try { const r = await api(`uw_underwriter_names?id=eq.${user.id}&select=role`); if (r[0]) user.role = r[0].role; } catch (_) { /* keep */ } user._r = 1; sessionStorage.setItem("uw_user", JSON.stringify(user)); }
+  if (!window.__chat) { window.__chat = true; Assistant.init({ api, rpc, go, toast, user, avatar: () => AVATAR("ClaimAssist", 40), logo: () => LOGO(34), showClaims: (ids, label) => { F.ids = ids; F.label = label; F.status = "All Status"; F.q = ""; F.period = "all"; window.__keepIds = true; if (location.hash === "#/claims") route(); else go("/claims"); }, refresh: () => { claims = null; } }); }
   const h = location.hash.replace(/^#\/?/, "") || "dashboard";
   const [page, id, tab] = h.split("/");
   try {
     if (page === "claim") return await renderClaim(id, tab || "overview");
-    if (page === "claims") return await renderList("claims");
+    if (page === "claims") { if (!window.__keepIds) { F.ids = null; F.label = ""; } window.__keepIds = false; return await renderList("claims"); }
     if (page === "queue") return await renderList("queue");
     if (page === "reports") return await renderReports(id);
     if (page === "alerts") return await renderAlerts(id);
@@ -93,11 +94,11 @@ function shell(active, inner, top = "") {
     <div class="me"><div class="avt">${AVATAR(user.name, 44)}</div><div><b>${esc(user.name)}</b><small>${esc(user.role)}</small></div><button title="Sign out" id="so">⏻</button></div></aside>
     <main class="main">${top}${inner}</main></div>`;
   refreshBadge();
-  document.getElementById("so").onclick = () => { sessionStorage.removeItem("uw_user"); user = null; location.hash = ""; renderLogin(); };
+  document.getElementById("so").onclick = () => { Assistant.destroy(); window.__chat = false; sessionStorage.removeItem("uw_user"); user = null; location.hash = ""; renderLogin(); };
 }
 
 // ---------- list / dashboard ----------
-let F = { status: "All Status", period: "90", q: "", card: null };
+let F = { status: "All Status", period: "90", q: "", card: null, ids: null, label: "" };
 const fmtN = n => n >= 1e6 ? (n / 1e6).toFixed(2) + "M" : n >= 1e3 ? (n / 1e3).toFixed(1) + "K" : String(n || 0);
 const fmtS = ms => ms ? (ms / 1000).toFixed(1) + "s" : "—";
 function fleetHtml() {
@@ -123,6 +124,7 @@ function fleetHtml() {
 async function renderList(mode) {
   shell(mode, `<div class="spin">Loading claims…</div>`);
   const all = await loadClaims(true);
+  if (mode !== "dashboard") { try { const [an, ur] = await Promise.all([api("uw_ai_analysis?select=claim_id,fraud_risk,repair_min,repair_max"), api("uw_ai_agent_runs?agent_key=eq.fraud&select=claim_id,metrics")]); AN = Object.fromEntries(an.map(x => [x.claim_id, x])); FS = Object.fromEntries(ur.map(x => [x.claim_id, x.metrics])); } catch (_) { AN = {}; FS = {}; } }
   if (mode === "dashboard") { if (!AGENTS) AGENTS = await api("uw_ai_agents?select=*&order=sort_order"); STATS = await api("uw_agent_stats?select=*"); }
   draw();
   function draw() {
@@ -133,6 +135,7 @@ async function renderList(mode) {
     const cutoff = Date.now() - days * 864e5;
     let list = rows.filter(c => new Date(c.reported_on) >= cutoff);
     if (F.status !== "All Status") list = list.filter(c => c.status === F.status);
+    if (F.ids) list = list.filter(c => F.ids.includes(c.id));
     if (F.q) { const q = F.q.toLowerCase(); list = list.filter(c => [c.claim_no, c.policy_no, c.insured_name, c.make_model, c.reg_no].join(" ").toLowerCase().includes(q)); }
     const titles = { dashboard: ["Claims Dashboard", "Claim KPIs and the AI agent team processing them"], claims: ["All Claims", "Browse every claim in the system"], queue: ["My Queue", "Claims assigned to you that need action"] };
     const top = `<div class="top"><div><h2>${titles[mode][0]}</h2><p>${titles[mode][1]}</p></div><input class="search" id="q" placeholder="🔍 Search by claim number, policy no, vehicle no…" value="${esc(F.q)}"></div>`;
@@ -141,16 +144,17 @@ async function renderList(mode) {
          ["Approved", cnt(["Approved", "Closed"]), "Approved", "color:var(--green)"], ["Rejected", cnt("Rejected"), "Rejected", "color:var(--red)"]]
         .map(([l, n, s, st]) => `<div class="card stat ${F.status === s && s ? "on" : ""}" data-s="${s || ""}"><small>${l}</small><b style="${st}">${n}</b></div>`).join("")}</div>` : "";
     const statuses = ["All Status", "New", "Pending Underwriting", "In Review", "Pending Documents", "Pending Garage Estimate", "Approved", "Rejected", "Closed"];
-    shell(mode, `${cards}${mode === "dashboard" ? fleetHtml() : `<div class="card"><div class="toolbar"><h3>Claims List <small style="color:var(--mut);font-weight:400">(${list.length})</small></h3>
+    shell(mode, `${cards}${mode === "dashboard" ? fleetHtml() : `${F.ids ? `<div class="afl">✨ Assistant filter: <b>${esc(F.label)}</b> · ${list.length} claim${list.length === 1 ? "" : "s"} <button id="clrf">Clear ✕</button></div>` : ""}<div class="card"><div class="toolbar"><h3>Claims List <small style="color:var(--mut);font-weight:400">(${list.length})</small></h3>
       <select id="fs">${statuses.map(s => `<option ${s === F.status ? "selected" : ""}>${s}</option>`).join("")}</select>
       <select id="fp">${[["30", "Last 30 days"], ["60", "Last 60 days"], ["90", "Last 90 days"], ["all", "All time"]].map(([v, l]) => `<option value="${v}" ${v === F.period ? "selected" : ""}>${l}</option>`).join("")}</select>
       <button class="btn ghost sm" id="ex">⤓ Export</button></div>
-      <div class="tablewrap"><table><thead><tr><th>Claim No.</th><th>Policy No.</th><th>Insured Name</th><th>Vehicle</th><th>Loss Date</th><th>Status</th><th>Action</th></tr></thead><tbody>
-      ${list.map(c => `<tr class="row" data-id="${c.id}"><td><b>${c.claim_no}</b></td><td>${c.policy_no}</td><td>${esc(c.insured_name)}</td><td>${esc(c.make_model)}</td><td>${fdate(c.loss_date)}</td><td>${badge(c.status)}</td><td><a href="#/claim/${c.id}">View</a></td></tr>`).join("") || `<tr><td colspan="7" class="empty">No claims match the filters.</td></tr>`}
+      <div class="tablewrap"><table><thead><tr><th>Claim No.</th><th>Policy No.</th><th>Insured Name</th><th>Vehicle</th><th>Loss Date</th><th>Status</th><th>Fraud</th><th>AI estimate</th><th>Action</th></tr></thead><tbody>
+      ${list.map(c => `<tr class="row" data-id="${c.id}"><td><b>${c.claim_no}</b></td><td>${c.policy_no}</td><td>${esc(c.insured_name)}</td><td>${esc(c.make_model)}</td><td>${fdate(c.loss_date)}</td><td>${badge(c.status)}</td><td>${FS[c.id] ? `<b style="color:${{ Low: "#16a34a", Medium: "#d97706", High: "#dc2626" }[FS[c.id].fraud_risk]}">${FS[c.id].fraud_risk} <small style="font-weight:400;color:var(--mut)">${FS[c.id].score}</small></b>` : "—"}</td><td>${AN[c.id] && AN[c.id].repair_min ? money((+AN[c.id].repair_min + +AN[c.id].repair_max) / 2) : "—"}</td><td><a href="#/claim/${c.id}">View</a></td></tr>`).join("") || `<tr><td colspan="9" class="empty">No claims match the filters.</td></tr>`}
       </tbody></table></div></div>`}`, top);
     const q = document.getElementById("q"); if (mode !== "dashboard") q.oninput = () => { F.q = q.value; const p = q.selectionStart; draw(); const n = document.getElementById("q"); n.focus(); n.setSelectionRange(p, p); };
     document.querySelectorAll(".stat").forEach(el => el.onclick = () => { F.status = el.dataset.s || "All Status"; if (mode === "dashboard") go("/claims"); else draw(); });
     if (mode === "dashboard") { q.onkeydown = e => { if (e.key === "Enter") { F.q = q.value; go("/claims"); } }; return; }
+    const cf = document.getElementById("clrf"); if (cf) cf.onclick = () => { F.ids = null; F.label = ""; draw(); };
     document.getElementById("fs").onchange = e => { F.status = e.target.value; draw(); };
     document.getElementById("fp").onchange = e => { F.period = e.target.value; draw(); };
     document.querySelectorAll("tr.row").forEach(el => el.onclick = () => go("/claim/" + el.dataset.id));
@@ -259,6 +263,7 @@ function bindRun(d) {
   };
   const start = () => { btn.disabled = true; btn.textContent = "Running…"; wk = null; clearInterval(timer); timer = setInterval(poll, 2000); poll(); };
   btn.onclick = async () => { try { const r = await rpc("uw_request_ai_run", { p_claim: id, p_user: user.name }); if (r.error) throw new Error(r.error); start(); } catch (e) { toast(e.message); } };
+  if (window.__autoRun === id) { window.__autoRun = null; setTimeout(() => btn.click(), 400); }
   rpc("uw_ai_run_status", { p_claim: id }).then(r => { if (r && ["queued", "running"].includes(r.status) && Date.now() - new Date(r.requested_at) < 600000) start(); });
 }
 function aiTab(d) {
