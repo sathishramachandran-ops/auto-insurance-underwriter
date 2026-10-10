@@ -38,7 +38,7 @@ async function mount(el, ctx) {
 
   // ----- tab bodies -----
   const B = {};
-  B.profile = () => card("Your profile", "", `<dl class="kv"><dt>Name</dt><dd>${esc(user.name)}</dd><dt>Email</dt><dd>${esc(user.email)}</dd><dt>Role</dt><dd>${esc(user.role)}</dd><dt>Data source</dt><dd>Supabase · Kore Agent Platform (prod)</dd></dl>`) +
+  B.profile = () => card("Your profile", "", `<div style="display:flex;align-items:center;gap:16px;margin-bottom:14px">${ctx.avatar64}<div><b style="font-size:18px">${esc(user.name)}</b><div style="color:var(--mut)">${esc(user.role)}</div></div></div><dl class="kv"><dt>Name</dt><dd>${esc(user.name)}</dd><dt>Email</dt><dd>${esc(user.email)}</dd><dt>Role</dt><dd>${esc(user.role)}</dd><dt>Data source</dt><dd>Supabase · Kore Agent Platform (prod)</dd></dl>`) +
     card("Preferences", "Saved in this browser", `<div class="fld"><label>Landing page after sign-in</label>${radios("p.landing", [["dashboard", "Dashboard", "KPIs and AI agent team"], ["claims", "Claims", "Full claims list"], ["reports", "Reports", "Analytics dashboards"]])}</div>
     <div class="fld"><label>Table density</label>${radios("p.density", [["comfortable", "Comfortable", "More breathing room"], ["compact", "Compact", "Fit more rows on screen"]], 2)}</div>`);
 

@@ -9,6 +9,12 @@ let AGENTS = null, STATS = [];
 
 // ---------- helpers ----------
 const LOGO = (n = 34) => `<svg width="${n}" height="${n}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><defs><linearGradient id="ia" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1d5fe0"/><stop offset="1" stop-color="#0e9f9a"/></linearGradient><linearGradient id="ib" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#dbe9ff"/></linearGradient></defs><rect width="48" height="48" rx="12" fill="url(#ia)"/><path d="M24 7.5 38.5 13v11c0 8.2-6.2 14.2-14.5 17.3C15.700 38.200 9.500 32.200 9.500 24V13Z" fill="url(#ib)"/><path d="M15.500 29.500v-3.200l2.200-5.100c.5-1.100 1.500-1.800 2.700-1.800h7.200c1.200 0 2.200.7 2.700 1.800l2.200 5.100v3.200h-2.600v-1.700H18.100v1.700Z" fill="#1d5fe0"/><path d="m19.400 22.200 1.200-2.600c.2-.4.600-.6 1-.6h5.600c.4 0 .8.200 1 .6l1.200 2.600Z" fill="url(#ib)"/><circle cx="19.600" cy="27.200" r="1.300" fill="#fff"/><circle cx="28.400" cy="27.200" r="1.300" fill="#fff"/><path d="m37.500 5.500.9 2.400 2.400.9-2.400.9-.9 2.400-.9-2.400-2.400-.9 2.400-.9Z" fill="#ffd54a" stroke="#fff" stroke-width=".6"/></svg>`;
+const AVATARS = [["#f2c9a0", "#2b2118", "#14213d"], ["#e0ac86", "#1c1410", "#1d5fe0"], ["#f5d3b3", "#6b3f1d", "#0e9f9a"], ["#c98f68", "#111", "#4a3aa7"]];
+const AVATAR = (name, n = 42) => { const k = [...String(name || "?")].reduce((a, c) => a + c.charCodeAt(0), 0) % AVATARS.length, [skin, hair, shirt] = AVATARS[k];
+  return `<svg width="${n}" height="${n}" viewBox="0 0 64 64"><defs><linearGradient id="avb${k}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#e3eeff"/><stop offset="1" stop-color="#b9d0fb"/></linearGradient><clipPath id="avc${k}"><circle cx="32" cy="32" r="30"/></clipPath></defs>
+  <circle cx="32" cy="32" r="31" fill="url(#avb${k})" stroke="#fff" stroke-width="2"/><g clip-path="url(#avc${k})"><path d="M6 66c1-15 12-22 26-22s25 7 26 22Z" fill="${shirt}"/><path d="M24 46l8 9 8-9-3-3h-10Z" fill="#fff"/><rect x="27" y="36" width="10" height="11" rx="4" fill="${skin}"/>
+  <ellipse cx="32" cy="27" rx="11.500" ry="13" fill="${skin}"/><path d="M20.500 26c-1-9 5-14 12-14 8 0 13 5 11.500 14-1.500-4-4-6.500-7.500-7.500-3.500 1.500-9 2-16 7.500Z" fill="${hair}"/><circle cx="27.500" cy="28" r="1.300" fill="#2b2118"/><circle cx="36.500" cy="28" r="1.300" fill="#2b2118"/><path d="M28.500 33.500q3.500 2.500 7 0" stroke="#9a5b3a" stroke-width="1.400" fill="none" stroke-linecap="round"/></g>
+  <circle cx="53" cy="53" r="6" fill="#16a34a" stroke="#fff" stroke-width="2.500"/></svg>`; };
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const money = n => "AED " + Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: 0 });
 const fdate = d => d ? new Date(d).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }).replace(/ /g, "-") : "—";
@@ -41,6 +47,7 @@ window.addEventListener("hashchange", route);
 function go(h) { location.hash = h; }
 async function route() {
   if (!user) return renderLogin();
+  if (!user._r) { try { const r = await api(`uw_underwriter_names?id=eq.${user.id}&select=role`); if (r[0]) user.role = r[0].role; } catch (_) { /* keep */ } user._r = 1; sessionStorage.setItem("uw_user", JSON.stringify(user)); }
   const h = location.hash.replace(/^#\/?/, "") || "dashboard";
   const [page, id, tab] = h.split("/");
   try {
@@ -83,7 +90,7 @@ function shell(active, inner, top = "") {
   const nav = [["dashboard", "Dashboard", "▦"], ["claims", "Claims", "▤"], ["queue", "My Queue", "☰"], ["alerts", "My Alerts", "🔔"], ["reports", "Reports", "◔"], ["settings", "Settings", "⚙"]]
     .map(([k, l, i]) => `<a href="#/${k}" class="${active === k ? "on" : ""}">${i}&nbsp; ${l}${k === "alerts" ? `<span class="nbadge ${badgeState.crit ? "crit" : ""}" id="nb" style="${badgeState.n ? "" : "display:none"}">${badgeState.n}</span>` : ""}</a>`).join("");
   $app.innerHTML = `<div class="shell"><aside class="side"><div class="brand">${LOGO(36)}<div class="wm"><span><b>Claim</b><em>Assist</em></span><small>Claims intelligence</small></div></div><nav class="nav">${nav}</nav>
-    <div class="me"><div class="av">${ini}</div><div><b>${esc(user.name)}</b><small>${esc(user.role)}</small></div><button title="Sign out" id="so">⏻</button></div></aside>
+    <div class="me"><div class="avt">${AVATAR(user.name, 44)}</div><div><b>${esc(user.name)}</b><small>${esc(user.role)}</small></div><button title="Sign out" id="so">⏻</button></div></aside>
     <main class="main">${top}${inner}</main></div>`;
   refreshBadge();
   document.getElementById("so").onclick = () => { sessionStorage.removeItem("uw_user"); user = null; location.hash = ""; renderLogin(); };
@@ -172,7 +179,7 @@ async function renderSettings(tab) {
   shell("settings", `<div id="st-root"></div>`);
   if (!AGENTS) AGENTS = await api("uw_ai_agents?select=*&order=sort_order");
   const ag = k => AGENTS.find(x => x.key === k);
-  await Settings.mount(document.getElementById("st-root"), { tab, api, rpc, user, toast, claims: () => loadClaims(), avatar: k => svgUri(ag(k).avatar_svg), role: k => ag(k).role });
+  await Settings.mount(document.getElementById("st-root"), { tab, avatar64: AVATAR(user.name, 64), api, rpc, user, toast, claims: () => loadClaims(), avatar: k => svgUri(ag(k).avatar_svg), role: k => ag(k).role });
 }
 // ---------- claim details ----------
 const TABS = [["overview", "Overview"], ["vehicle", "Vehicle"], ["documents", "Documents & Images"], ["ai", "AI Analysis"], ["decision", "Underwriting Decision"], ["garage", "Garage Estimate"], ["timeline", "Timeline"]];
