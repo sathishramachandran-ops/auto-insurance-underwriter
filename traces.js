@@ -43,7 +43,7 @@ async function mount(el, ctx) {
   function agentTiles() {
     const rows = Object.keys(AGN).map(k => { const x = aspans.filter(s => s.agent_key === k); return [k, x]; });
     if (f.agent !== "all") { const x = aspans, ok = x.filter(s => s.status === "completed").length; return `<div class="tiles">${tile("Runs", num(x.length))}${tile("Success", x.length ? Math.round(ok / x.length * 100) + "%" : "-")}${tile("Avg latency", x.length ? dur(x.reduce((a, s) => a + s.ms, 0) / x.length) : "-")}${tile("Avg tokens", x.length ? num(x.reduce((a, s) => a + s.tokens_in + s.tokens_out, 0) / x.length) : "-")}</div>`; }
-    return `<div class="tiles five">${rows.map(([k]) => `<a class="tile tra" href="#/traces/${k}"><small>${AGN[k][0]}</small><b style="font-size:16px">${AGN[k][1]}</b><small>view traces →</small></a>`).join("")}</div>`;
+    return `<div class="trag">${rows.map(([k]) => `<a class="tra" href="#/traces/${k}"><b>${AGN[k][0]}</b><small>${AGN[k][1]}</small><span>›</span></a>`).join("")}</div>`;
   }
 
   function draw() {
