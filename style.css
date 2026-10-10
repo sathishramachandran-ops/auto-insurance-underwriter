@@ -185,3 +185,5 @@ td:last-child,th:last-child{white-space:nowrap}.chat-open td,.chat-open th{paddi
 .chat-open .toast{left:calc((100% - var(--cw)) / 2)}
 @media(max-width:900px){.cpanel{right:0!important}.chat-open .main{margin-right:0!important}}
 td b{white-space:nowrap}
+/* launcher: right-hand corner (sits just above the browser-extension button that lives in the corner) */
+.cfab{left:auto!important;right:20px!important;bottom:76px!important}
