@@ -58,11 +58,12 @@ function parse(q) {
   const STOP = new Set(["claim", "claims", "show", "list", "with", "that", "have", "dubai", "this", "from", "your", "mine", "open", "find", "which", "what", "about", "high", "medium", "risk", "fraud"]);
   const nm = D ? D.names.filter(n => t.includes(n.toLowerCase()) || n.toLowerCase().split(" ").some(w => w.length >= 4 && !STOP.has(w) && new RegExp(`\\b${w}\\b`).test(t))) : [];
   if (nm.length && nm.length <= 4) { e.names = nm; e.desc.push("insured " + nm.join(" / ")); }
-  e.hasFilter = !!(e.status || e.fraud || e.sev || e.damage || e.min != null || e.max != null || e.since || e.mine || e.auth || e.rec || e.noAI || e.overdue || e.makes || e.names);
+  if (/\b(claims? (are |is )?(still )?(open|active|outstanding|unresolved)|(open|active|outstanding|unresolved) claims)\b/.test(t) && !e.status) { e.openOnly = true; e.desc.push("open claims"); }
+  e.hasFilter = !!(e.openOnly || e.status || e.fraud || e.sev || e.damage || e.min != null || e.max != null || e.since || e.mine || e.auth || e.rec || e.noAI || e.overdue || e.makes || e.names);
   return e;
 }
 function filterClaims(e, only) {
-  const slaMs = 48 * 36e5, f = c => (!e.text || [c.claim_no, c.insured_name, c.make_model, c.reg_no, c.location, c.policy_no].join(" ").toLowerCase().includes(e.text)) && (!e.authName || (authOf(c) || "").toLowerCase() === e.authName.toLowerCase()) && (!e.status || c.status === e.status) && (!e.fraud || e.fraud.includes(fraudOf(c))) && (!e.sev || D.an[c.id]?.damage_severity === e.sev) && (!e.damage || c.damage_area === e.damage) && (e.min == null || +c.claimed_amount > e.min) && (e.max == null || +c.claimed_amount < e.max)
+  const slaMs = 48 * 36e5, f = c => (!e.text || [c.claim_no, c.insured_name, c.make_model, c.reg_no, c.location, c.policy_no].join(" ").toLowerCase().includes(e.text)) && (!e.authName || (authOf(c) || "").toLowerCase() === e.authName.toLowerCase()) && (!e.openOnly || OPEN.includes(c.status)) && (!e.status || c.status === e.status) && (!e.fraud || e.fraud.includes(fraudOf(c))) && (!e.sev || D.an[c.id]?.damage_severity === e.sev) && (!e.damage || c.damage_area === e.damage) && (e.min == null || +c.claimed_amount > e.min) && (e.max == null || +c.claimed_amount < e.max)
     && (!e.since || new Date(c.reported_on) >= e.since) && (!e.mine || c.assigned_to === ctx.user.id) && (!e.auth || (authOf(c) && authOf(c) !== "Underwriter" && OPEN.includes(c.status))) && (!e.rec || recOf(c).startsWith(e.rec)) && (!e.noAI || !D.R[c.id]?.fraud)
     && (!e.overdue || (OPEN.includes(c.status) && Date.now() - new Date(c.reported_on) > slaMs)) && (!e.makes || e.makes.includes(c.make_model)) && (!e.names || e.names.includes(c.insured_name));
   return only ? f(only) : D.claims.filter(f);
@@ -85,11 +86,22 @@ async function localAnswer(q) {
   if (/\b(set|change|update|increase|decrease|raise|lower|make)\b/.test(t) && /\d/.test(t)) { for (const [re, sec, key, label, unit, tabk] of SETS) if (re.test(t)) { const m = t.match(/(?:to|=|at)\s*(?:aed\s*)?(\d[\d,.]*)\s*(k|m)?/) || t.match(/(\d[\d,.]*)\s*(k|m)?\s*$/); if (!m) break; const v = Math.round(parseFloat(m[1].replace(/,/g, "")) * (m[2] === "k" ? 1e3 : m[2] === "m" ? 1e6 : 1));
     const cur = (await ctx.api(`uw_settings?key=eq.${sec}&select=value`))[0]?.value || {}; pending = { run: async () => { const nv = { ...cur, [key]: v }; await ctx.rpc("uw_save_setting", { p_key: sec, p_value: nv, p_user: ctx.user.name }); ctx.go("/settings/" + tabk); return reply(`Done - **${label}** is now **${unit ? aed(v) : v.toLocaleString()}** (was ${unit ? aed(cur[key]) : cur[key]}). I've opened the settings page. It takes effect on the next AI run.`, { applied: "Setting saved" }); } };
     return reply(`I can change **${label}** from **${unit ? aed(cur[key]) : cur[key]}** to **${unit ? aed(v) : v.toLocaleString()}**. Shall I apply it?`, { chips: ["Yes, apply it", "No, cancel"] }); } }
-  const target = e.nos[0] || (/\b(it|this claim|that claim|this one|that one|the claim)\b/.test(t) && last.claim ? last.claim : null);
+  const target = e.nos[0] || (/\b(it|its|this claim|that claim|this one|that one|the claim|the (\w+ ){0,2}tab)\b/.test(t) && last.claim ? last.claim : null);
   // run AI agents
   if (/\b(run|start|trigger|kick ?off|re-?run|execute|analy[sz]e)\b/.test(t) && /\b(ai|agents?|analysis|claim)\b/.test(t) && target) { const c = D.byNo[target]; if (!c) return reply(`I couldn't find ${target}.`); last.claim = target; window.__autoRun = c.id; ctx.go(`/claim/${c.id}/ai`); return reply(`Starting the AI agents on **${c.claim_no}** now. I've opened its AI Analysis tab - you'll see DocuMind, VisionAssess, FraudShield, RepairIQ and UnderwriteIQ progress live, then the outcome.`, { applied: "Opened AI Analysis and started the Kore workflow" }); }
   // open / explain a claim
   if (target && D.byNo[target]) { const c = D.byNo[target]; last.claim = target;
+    const noOpen = !/\b(open|go to|take me|view|display|pull up)\b/.test(t);
+    if (noOpen && /missing|which documents|what documents|what('s| is| has) (been )?(uploaded|attached|received)|documents? (are )?(uploaded|attached|received|outstanding)/.test(t)) { const docs = await ctx.api(`uw_claim_documents?claim_id=eq.${c.id}&select=title,kind,storage_path`), titles = new Set(docs.map(d => d.title)), photos = docs.filter(d => d.kind === "image" && d.storage_path).length, need = [["Emirates ID", "Emirates ID"], ["RTA Driving Licence", "Driving licence"], ["RTA Vehicle Registration Certificate (Mulkiya)", "Vehicle registration (Mulkiya)"]].concat(["Collision", "Side Impact"].includes(c.accident_type) ? [["Dubai Police - Traffic Accident Report", "Dubai Police report"]] : []), miss = need.filter(([k]) => !titles.has(k)).map(x => x[1]); if (c.source === "customer" && photos < 3) miss.push("At least 3 damage photos");
+      return reply(`**${c.claim_no}** has **${docs.length}** document${docs.length === 1 ? "" : "s"} on file${docs.length ? ": " + [...titles].slice(0, 6).join(", ") + "." : "."} ${miss.length ? "Still missing: **" + miss.join(", ") + "**." : "**Nothing is missing** - all required documents are in."}`, { actions: [["Open documents", `/claim/${c.id}/documents`]], chips: miss.length ? [] : ["Run AI agents on it"] }); }
+    if (noOpen && /garage|estimate/.test(t) && /within|band|compare|reasonable|variance|outside|versus|vs\b|how does|is the|ok\b|fair/.test(t)) { const g = await ctx.api(`uw_garage_estimates?claim_id=eq.${c.id}&select=estimated_cost`), tot = g.reduce((s, x) => s + +x.estimated_cost, 0), a = D.an[c.id];
+      if (!g.length) return reply(`No garage estimate has been received for **${c.claim_no}** yet.${a?.repair_min ? ` The AI band is **${aed(a.repair_min)} - ${aed(a.repair_max)}**.` : ""}`, { actions: [["Open garage tab", `/claim/${c.id}/garage`]] });
+      if (!a?.repair_min) return reply(`The garage estimate is **${aed(tot)}**, but the AI hasn't produced a cost band for this claim yet.`, { actions: [["Open AI analysis", `/claim/${c.id}/ai`]] });
+      const inb = tot >= a.repair_min * .95 && tot <= a.repair_max * 1.05; return reply(`The garage estimate of **${aed(tot)}** is **${inb ? "within" : "outside"}** the AI band of **${aed(a.repair_min)} - ${aed(a.repair_max)}**${inb ? "." : ` (${tot > a.repair_max ? "above" : "below"} by ${aed(Math.abs(tot - (tot > a.repair_max ? a.repair_max : a.repair_min)))}). I'd review it before approving payment.`}`, { actions: [["Open garage tab", `/claim/${c.id}/garage`]] }); }
+    if (noOpen && /who (needs|must|should|can|has) (to )?(approve|sign)|approval authority|which authority|sign[- ]?off/.test(t)) { const r = D.R[c.id]?.uw; if (!r) return reply(`UnderwriteIQ hasn't assessed **${c.claim_no}** yet, so there's no approval authority. Shall I run the AI agents?`, { chips: ["Run AI agents on it"] }); const m = r.metrics || {}; return reply(`**${c.claim_no}** needs sign-off from a **${m.authority_level || "Underwriter"}**. Estimated payable after deductible: **${m.estimated_payable_aed > 0 ? aed(m.estimated_payable_aed) : "not payable (" + r.headline + ")"}**.`, { actions: [["Open decision tab", `/claim/${c.id}/decision`]] }); }
+    if (noOpen && /underwriteiq|recommend|should (we|i) (approve|reject)/.test(t)) { const r = D.R[c.id]?.uw; if (!r) return reply(`There's no recommendation for **${c.claim_no}** yet because the AI agents haven't run. Shall I run them?`, { chips: ["Run AI agents on it"] }); const m = r.metrics || {}, items = [...(m.conditions || []), ...(m.actions || [])].slice(0, 4);
+      return reply(`UnderwriteIQ recommends: **${r.headline}** (confidence ${r.confidence}%, authority **${m.authority_level || "Underwriter"}**).${items.length ? "\n\nKey points:\n" + items.map(x => "- " + x).join("\n") : ""}\n\nThe decision is yours - I can't approve or reject.`, { actions: [["Open decision tab", `/claim/${c.id}/decision`]] }); }
+    if (noOpen && /where is|which (step|stage)|progress|in the process|process status/.test(t)) { const tl = await ctx.api(`uw_timeline?claim_id=eq.${c.id}&select=step_no,title,state&order=step_no`), cur = tl.find(x => x.state === "current"), done = tl.filter(x => x.state === "done").length; return reply(`**${c.claim_no}** is **${cur ? "at: " + cur.title : c.status === "Closed" ? "closed" : c.status === "Rejected" ? "rejected and closed" : "past all steps"}** - ${done} of ${tl.length} steps done (status **${c.status}**).`, { actions: [["Open timeline", `/claim/${c.id}/timeline`]] }); }
     const tabw = /document|attachment|photo|image|upload/.test(t) ? "documents" : /decision|recommend|approve|reject authority|sign[- ]?off/.test(t) ? "decision" : /garage|estimate/.test(t) ? "garage" : /timeline|progress|history/.test(t) ? "timeline" : /vehicle|car details/.test(t) ? "vehicle" : /\bai\b|analysis|agents?|fraud|findings/.test(t) ? "ai" : "overview";
     if (/\b(open|show|view|go to|take me|display|pull up)\b/.test(t) || trim.replace(/clm[-\s]?\d+/i, "").trim().length < 3) { ctx.go(`/claim/${c.id}/${tabw}`); return reply(`Opening **${c.claim_no}** (${c.insured_name}, ${c.make_model}) - ${tabw === "overview" ? "overview" : tabw} tab.`, { applied: "Navigated to the claim", chips: ["Why is it flagged?", "Run AI agents on it"] }); }
     return explain(c); }
@@ -142,7 +154,37 @@ function explain(c) {
 async function answer(q) { await load(); return localAnswer(q); }
 function setBadge() { const b = root?.querySelector("#cmode"); if (b) { b.className = "on"; b.textContent = "Answers from your live claims data"; } }
 // ---------- UI ----------
-const sug = ["Which claims need my attention today?", "Show high fraud risk claims", "How are the AI agents performing?", "Open the latest new claim"];
+function pageInfo() {
+  const h = location.hash.replace(/^#\/?/, "") || "dashboard", [p, x, y] = h.split("/");
+  if (p === "claim" && D) { const c = D.claims.find(k => k.id === x); if (c) { last.claim = c.claim_no; return { kind: "claim", c, tab: y || "overview" }; } }
+  return { kind: p || "dashboard", tab: x };
+}
+const SUG = {
+  dashboard: ["Which claims need my attention today?", "How are the AI agents performing?", "Show high fraud risk claims", "Open the latest new claim"],
+  claims: ["Show claims in review", "Which claims are older than the SLA?", "Show Toyota claims over 10k", "How many claims are pending documents?"],
+  queue: ["What should I work on first?", "Show my claims needing senior sign-off", "Which of my claims are overdue?", "How many of my claims are in review?"],
+  alerts: ["Show critical alerts", "Which agent has latency alerts?", "Any token budget alerts?", "Show fraud risk alerts"],
+  "reports:portfolio": ["How many claims are open?", "What is the approval rate?", "Show the financial report", "Which vehicle models have the most claims?"],
+  "reports:agents": ["Which agent is slowest?", "How many tokens have the agents used?", "Show latency alerts", "How is DocuMind performing?"],
+  "reports:risk": ["Show high fraud risk claims", "How many medium risk claims are there?", "Show claims that need senior sign-off", "Open the underwriting report"],
+  "reports:financial": ["How much has been paid out?", "What is our open exposure?", "Show claims over 20k", "What is the average repair estimate?"],
+  "reports:underwriting": ["Which claims need senior sign-off?", "What is the approval rate?", "Show overdue claims", "Show critical alerts"],
+  "settings:profile": ["Open the approval settings", "Open the fraud settings", "Set underwriter limit to 30000", "What can you help me with?"],
+  "settings:agents": ["Open the limits and budgets settings", "Set daily run cap to 400", "How are the AI agents performing?", "How many tokens have the agents used?"],
+  "settings:limits": ["Set monthly token budget to 60M", "Set daily run cap to 400", "How many tokens have the agents used?", "Show token budget alerts"],
+  "settings:approval": ["Set underwriter limit to 30000", "Set senior limit to 60000", "Which claims need senior sign-off?", "Show claims over 20k"],
+  "settings:fraud": ["Set high fraud threshold to 70", "Set late report hours to 36", "Show high fraud risk claims", "Show fraud risk alerts"],
+  "settings:sla": ["Set SLA hours to 24", "Which claims are older than the SLA?", "Show overdue claims", "Show SLA alerts"],
+  "settings:privacy": ["Open the approval settings", "Open the fraud settings", "What can you help me with?", "Show critical alerts"],
+};
+function sugFor() {
+  const i = pageInfo();
+  if (i.kind === "claim") { const n = i.c.claim_no, T = { overview: [`Summarize ${n}`, `Why is ${n} flagged?`, "Which documents are missing?", "Run AI agents on it"], vehicle: [`Summarize ${n}`, "Show its documents", `Why is ${n} flagged?`, "Run AI agents on it"], documents: ["Which documents are missing?", "Open the AI analysis tab", `Summarize ${n}`, "Is the garage estimate within the AI band?"], ai: [`Why is ${n} flagged?`, "Run AI agents on it", "Open the decision tab", "What does UnderwriteIQ recommend?"], decision: ["What does UnderwriteIQ recommend?", "Who needs to approve this claim?", "Open the AI analysis tab", "Show the timeline"], garage: ["Is the garage estimate within the AI band?", "Who needs to approve this claim?", "Open the decision tab", `Summarize ${n}`], timeline: ["Where is this claim in the process?", "Which documents are missing?", "Open the AI analysis tab", `Summarize ${n}`] }; return { title: `${n} · ${{ overview: "Overview", vehicle: "Vehicle", documents: "Documents", ai: "AI Analysis", decision: "Decision", garage: "Garage", timeline: "Timeline" }[i.tab] || "Claim"}`, list: T[i.tab] || T.overview }; }
+  const key = ["reports", "settings"].includes(i.kind) ? `${i.kind}:${i.tab || (i.kind === "reports" ? "portfolio" : "profile")}` : i.kind;
+  const nice = { dashboard: "Dashboard", claims: "Claims", queue: "My Queue", alerts: "My Alerts" }[i.kind] || (key.replace(":", " · ").replace(/^./, c => c.toUpperCase()));
+  return { title: nice, list: SUG[key] || SUG[i.kind] || SUG.dashboard };
+}
+
 function build() {
   fab = document.createElement("button"); fab.className = "cfab"; fab.title = "ClaimAssist Assistant"; fab.innerHTML = ctx.logo();
   root = document.createElement("aside"); root.className = "cpanel"; document.body.append(fab, root); fab.onclick = () => toggle(true);
@@ -157,7 +199,7 @@ function render() {
   const first = ctx.user.name.split(" ")[0];
   let body;
   if (tab === "chat") body = msgs.length ? `<div class="cms" id="cms">${msgs.map(bubble).join("")}${busy ? `<div class="cm a"><div class="cav">${ctx.logo()}</div><div class="cb typing"><i></i><i></i><i></i></div></div>` : ""}</div>` :
-    `<div class="chello"><h2>Hello ${esc(first)}!</h2><h2 class="dim">What would you like to do?</h2></div><div class="csug">${sug.map(s => `<button data-chip="${esc(s)}"><span>${esc(s)}</span><i>➜</i></button>`).join("")}</div>`;
+    (() => { const sf = sugFor(); return `<div class="chello"><h2>Hello ${esc(first)}!</h2><h2 class="dim">What would you like to do?</h2></div><div class="csugt">Suggested for <b>${esc(sf.title)}</b></div><div class="csug">${sf.list.map(s => `<button data-chip="${esc(s)}"><span>${esc(s)}</span><i>➜</i></button>`).join("")}</div>`; })();
   else if (tab === "queries") { const q = LS.get("uw_q", []); body = `<div class="clist">${q.length ? q.map(x => `<button data-chip="${esc(x.q)}"><b>${esc(x.q)}</b><small>${ago(x.t)}</small></button>`).join("") : `<div class="cempty">Your recent questions will appear here.</div>`}</div>`; }
   else { const b = LS.get("uw_bm", []); body = `<div class="clist">${b.length ? b.map((x, i) => `<div class="cbm"><button data-chip="${esc(x.q)}"><b>${esc(x.q)}</b><small>${esc(x.a.replace(/\*\*/g, "").slice(0, 140))}…</small></button><button class="rm" data-rmbm="${i}" title="Remove">✕</button></div>`).join("") : `<div class="cempty">Star an answer (☆) to bookmark it.</div>`}</div>`; }
   root.innerHTML = `<div class="chd"><div><b>ClaimAssist Assistant</b><small id="cmode"></small></div><div><button id="cnew" title="New chat">＋</button><button id="cexp" title="Expand">⤢</button><button id="cx" title="Close">✕</button></div></div>
@@ -182,7 +224,7 @@ async function send(text) {
   msgs.push({ role: "assistant", ...r }); busy = false; sessionStorage.setItem("uw_chat", JSON.stringify(msgs.slice(-30))); if (!opened) toggle(true); else render();
 }
 window.Assistant = {
-  init(c) { ctx = c; msgs = JSON.parse(sessionStorage.getItem("uw_chat") || "[]"); build(); load().catch(() => { }); },
+  init(c) { ctx = c; window.addEventListener("hashchange", () => { if (opened && tab === "chat" && !msgs.length && !busy) render(); }); msgs = JSON.parse(sessionStorage.getItem("uw_chat") || "[]"); build(); load().catch(() => { }); },
   destroy() { root?.remove(); fab?.remove(); document.body.classList.remove("chat-open", "chat-wide"); D = null; msgs = []; sessionStorage.removeItem("uw_chat"); },
 };
 })();
