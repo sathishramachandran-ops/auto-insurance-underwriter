@@ -190,7 +190,7 @@ function build() {
   fab = document.createElement("button"); fab.className = "cfab"; fab.title = "ClaimAssist Assistant"; fab.innerHTML = ctx.logo();
   root = document.createElement("aside"); root.className = "cpanel"; document.body.append(fab, root); fab.onclick = () => toggle(true);
 }
-function toggle(v) { opened = v; root.classList.toggle("open", v); fab.style.display = v ? "none" : ""; document.body.classList.toggle("chat-open", v); document.body.classList.toggle("chat-wide", v && wide); if (v) { render(); setTimeout(() => root.querySelector("#cin")?.focus(), 250); } }
+function toggle(v) { opened = v; root.classList.toggle("open", v); fab.style.display = v ? "none" : ""; document.body.classList.toggle("chat-open", v); document.body.classList.toggle("chat-wide", v && wide); window.dispatchEvent(new Event("chatlayout")); if (v) { render(); setTimeout(() => root.querySelector("#cin")?.focus(), 250); } }
 function bubble(m, i) {
   if (m.role === "user") return `<div class="cm u"><div class="cb">${esc(m.text)}</div></div>`;
   const star = (LS.get("uw_bm", []).some(b => b.a === m.text)) ? "★" : "☆";

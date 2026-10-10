@@ -94,6 +94,9 @@ async function mount(el, ctx) {
       if (row && stacked) { box.classList.add("inline"); row.after(box); row.scrollIntoView({ block: "start", behavior: "smooth" }); }
     }
   }
+  if (window.__alChat) window.removeEventListener("chatlayout", window.__alChat);
+  window.__alChat = () => { if (el.isConnected && el.querySelector(".alw")) draw(); else window.removeEventListener("chatlayout", window.__alChat); };
+  window.addEventListener("chatlayout", window.__alChat);
   draw();
 }
 window.Alerts = { mount };
