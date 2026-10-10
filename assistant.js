@@ -139,65 +139,15 @@ function explain(c) {
   return reply(txt, { actions: [["Open claim", `/claim/${c.id}/overview`], ["AI analysis", `/claim/${c.id}/ai`], ["Decision", `/claim/${c.id}/decision`]], chips: f ? [] : ["Run AI agents on it"] });
 }
 
-// ---------- LLM path (Kore chat agent via the bridge worker) ----------
-const CAN = { status: ["New", "Pending Underwriting", "In Review", "Pending Documents", "Pending Garage Estimate", "Approved", "Closed", "Rejected"], sev: ["High", "Medium", "Low"] };
-const canon = (v, list) => list.find(x => x.toLowerCase() === String(v || "").toLowerCase());
-function specToE(f) {
-  const e = { desc: [] }; if (!f) return e; const n = x => (x === "" || x == null ? null : parseFloat(String(x).replace(/,/g, "")));
-  if (canon(f.status, CAN.status)) e.status = canon(f.status, CAN.status);
-  if (f.fraud) e.fraud = String(f.fraud).split(",").map(x => canon(x.trim(), ["High", "Medium", "Low"])).filter(Boolean);
-  if (canon(f.severity, CAN.sev)) e.sev = canon(f.severity, CAN.sev);
-  if (f.damage) e.damage = String(f.damage).toLowerCase();
-  if (n(f.min_claimed) != null) e.min = n(f.min_claimed); if (n(f.max_claimed) != null) e.max = n(f.max_claimed);
-  if (n(f.days)) e.since = Date.now() - n(f.days) * 864e5;
-  if (String(f.overdue) === "true") e.overdue = true; if (String(f.no_ai) === "true") e.noAI = true;
-  if (f.recommendation) e.rec = /reject/i.test(f.recommendation) ? "Reject" : /approv/i.test(f.recommendation) ? "Approve" : "Request";
-  if (f.authority) e.authName = String(f.authority);
-  if (f.make) e.makes = D.makes.filter(m => m.toLowerCase().includes(String(f.make).toLowerCase()));
-  if (f.insured) e.names = D.names.filter(m => m.toLowerCase().includes(String(f.insured).toLowerCase()));
-  if (f.text) e.text = String(f.text).toLowerCase();
-  return e;
-}
-const SETKEYS = { "approval.underwriter_limit_aed": ["Underwriter approval limit", "AED", "approval"], "approval.senior_limit_aed": ["Senior underwriter limit", "AED", "approval"], "fraud.medium_threshold": ["Medium fraud threshold", "", "fraud"], "fraud.high_threshold": ["High fraud threshold", "", "fraud"], "fraud.late_report_hours": ["Late-report window (hours)", "", "fraud"], "ai_global.daily_run_cap": ["Daily AI run cap", "", "limits"], "ai_global.monthly_token_budget": ["Monthly token budget", "", "limits"], "sla.decision_sla_hours": ["Decision SLA (hours)", "", "sla"], "ai_global.alert_p95_latency_sec": ["Latency alert (P95 seconds)", "", "limits"] };
-async function runActions(actions, out) {
-  for (const x of (actions || []).slice(0, 3)) {
-    try {
-      if (x.type === "show_claims") { const e = specToE(x.filter), list = D.claims.filter(c => filterClaims(e, c)).sort((p, q) => (scoreOf(q) || 0) - (scoreOf(p) || 0) || new Date(q.reported_on) - new Date(p.reported_on)); last.ids = list.map(c => c.id); last.label = x.label || "results"; ctx.showClaims(last.ids, last.label); out.list = list.slice(0, 6); out.applied = `Filtered the Claims list (${list.length})`; }
-      else if (x.type === "open_claim" && D.byNo[String(x.claim_no).toUpperCase()]) { const c = D.byNo[String(x.claim_no).toUpperCase()]; last.claim = c.claim_no; ctx.go(`/claim/${c.id}/${x.tab || "overview"}`); out.applied = `Opened ${c.claim_no}`; }
-      else if (x.type === "open_page") { const p = x.page, tb = x.tab; ctx.go(p === "reports" ? "/reports/" + (tb || "portfolio") : p === "settings" ? "/settings/" + (tb || "profile") : "/" + (p === "claims" ? "claims" : p)); out.applied = "Opened " + p + (tb ? " → " + tb : ""); }
-      else if (x.type === "alerts_filter") { window.__alertPreset = { type: x.alert_type, sev: x.severity, status: x.status || "open" }; ctx.go("/alerts"); out.applied = "Opened My Alerts with filters"; }
-      else if (x.type === "run_ai" && D.byNo[String(x.claim_no).toUpperCase()]) { const c = D.byNo[String(x.claim_no).toUpperCase()]; last.claim = c.claim_no; window.__autoRun = c.id; ctx.go(`/claim/${c.id}/ai`); out.applied = `Started the AI agents on ${c.claim_no}`; }
-      else if (x.type === "set_setting" && SETKEYS[x.setting] && Number.isFinite(+x.value)) { const [sec, key] = x.setting.split("."), [label, unit, tabk] = SETKEYS[x.setting], v = Math.round(+x.value);
-        const cur = (await ctx.api(`uw_settings?key=eq.${sec}&select=value`))[0]?.value || {};
-        pending = { run: async () => { await ctx.rpc("uw_save_setting", { p_key: sec, p_value: { ...cur, [key]: v }, p_user: ctx.user.name }); ctx.go("/settings/" + tabk); return reply(`Done - **${label}** is now **${unit ? aed(v) : v.toLocaleString()}** (was ${unit ? aed(cur[key]) : cur[key]}). It takes effect on the next AI run.`, { applied: "Setting saved" }); } };
-        out.chips = ["Yes, apply it", "No, cancel"]; out.applied = null; }
-    } catch (_) { /* skip a bad action */ }
-  }
-}
-async function llmAnswer(q) {
-  const hist = msgs.slice(-8).map(m => ({ role: m.role, text: String(m.text || "").replace(/\*\*/g, "").slice(0, 400) })), prompt = JSON.stringify({ message: q, history: hist, context: { page: location.hash, last_claim: last.claim, active_list: last.label || null, user: ctx.user.name.split(" ")[0] } });
-  const j = await ctx.rpc("uw_chat_request", { p_session: ctx.user.id, p_prompt: prompt }); const t0 = Date.now();
-  for (;;) { await sleep(700); const r = await ctx.rpc("uw_chat_poll", { p_id: j.id }); if (r && r.status === "done") { var raw = r.reply; break; } if (r && r.status === "failed") throw new Error(r.error || "failed"); if (Date.now() - t0 > 45000) throw new Error("timeout"); }
-  let p; try { p = JSON.parse(raw.replace(/^```(?:json)?\s*|\s*```$/g, "").trim()); } catch (_) { const m = raw.match(/\{[\s\S]*\}/); try { p = JSON.parse(m[0]); } catch (__) { p = { reply: raw, actions: [], chips: [] }; } }
-  const out = { chips: (p.chips || []).slice(0, 3) }; await runActions(p.actions, out); return reply(p.reply || "Done.", out);
-}
-async function workerUp() { try { const w = await ctx.api("uw_agent_stats?agent_key=eq.worker&select=updated_at"); return !!w[0] && Date.now() - new Date(w[0].updated_at) < 25000; } catch (_) { return false; } }
-let kore = null;
-async function answer(q) {
-  await load(); const trim = q.toLowerCase().trim();
-  if (pending && /^(yes|y|yep|yeah|confirm|do it|go ahead|sure|ok|okay|apply|proceed|no|n|nope|cancel|stop|never ?mind)\b/.test(trim)) return localAnswer(q);
-  pending = null; kore = await workerUp(); setBadge();
-  if (kore) { try { return await llmAnswer(q); } catch (e) { kore = false; setBadge(); } }
-  const r = await localAnswer(q); r.text += "\n\n_Kore AI is offline, so I used the built-in search._"; return r;
-}
-function setBadge() { const b = root?.querySelector("#cmode"); if (b) { b.className = kore ? "on" : ""; b.textContent = kore ? "Powered by Kore Agent Platform · GPT-5.2" : "Offline mode · built-in search"; } }
+async function answer(q) { await load(); return localAnswer(q); }
+function setBadge() { const b = root?.querySelector("#cmode"); if (b) { b.className = "on"; b.textContent = "Answers from your live claims data"; } }
 // ---------- UI ----------
 const sug = ["Which claims need my attention today?", "Show high fraud risk claims", "How are the AI agents performing?", "Open the latest new claim"];
 function build() {
   fab = document.createElement("button"); fab.className = "cfab"; fab.title = "ClaimAssist Assistant"; fab.innerHTML = ctx.logo();
   root = document.createElement("aside"); root.className = "cpanel"; document.body.append(fab, root); fab.onclick = () => toggle(true);
 }
-function toggle(v) { opened = v; if (v && kore === null) workerUp().then(x => { kore = x; setBadge(); }); root.classList.toggle("open", v); fab.style.display = v ? "none" : ""; document.body.classList.toggle("chat-open", v); document.body.classList.toggle("chat-wide", v && wide); if (v) { render(); setTimeout(() => root.querySelector("#cin")?.focus(), 250); } }
+function toggle(v) { opened = v; root.classList.toggle("open", v); fab.style.display = v ? "none" : ""; document.body.classList.toggle("chat-open", v); document.body.classList.toggle("chat-wide", v && wide); if (v) { render(); setTimeout(() => root.querySelector("#cin")?.focus(), 250); } }
 function bubble(m, i) {
   if (m.role === "user") return `<div class="cm u"><div class="cb">${esc(m.text)}</div></div>`;
   const star = (LS.get("uw_bm", []).some(b => b.a === m.text)) ? "★" : "☆";
