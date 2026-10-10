@@ -90,6 +90,8 @@ async function mount(el, ctx) {
       box.querySelectorAll("[data-st]").forEach(b => b.onclick = async () => { await rpc("uw_alert_set_status", { p_id: cur.id, p_status: b.dataset.st, p_user: user.name }); await load(false); toast(b.dataset.st === "ack" ? "Alert acknowledged" : b.dataset.st === "resolved" ? "Alert resolved" : "Alert reopened"); ctx.badge(); draw(); });
       box.querySelectorAll("tr[data-go]").forEach(r => r.onclick = async () => { const x = (await ctx.claims()).find(c => c.claim_no === r.dataset.go.split("/").pop()); if (x) go("/claim/" + x.id + "/ai"); });
       Charts.bindTip(box);
+      const row = el.querySelector(".ali.on"), stacked = getComputedStyle(el.querySelector(".alw")).gridTemplateColumns.trim().split(/\s+/).length === 1;
+      if (row && stacked) { box.classList.add("inline"); row.after(box); row.scrollIntoView({ block: "start", behavior: "smooth" }); }
     }
   }
   draw();

@@ -190,3 +190,4 @@ td b{white-space:nowrap}
 /* launcher: bottom-right corner, level with the profile card */
 .cfab{left:auto!important;right:20px!important;bottom:20px!important}
 .csugt{font-size:12px;color:#9a948f;margin:-6px 0 8px 2px}.csugt b{color:#6b6560}
+.al-detail.inline{min-height:0;margin:6px 10px 12px;border:1px solid #cfe0f7;background:#fbfdff;box-shadow:none}
