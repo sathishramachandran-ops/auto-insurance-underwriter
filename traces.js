@@ -12,7 +12,7 @@ const tile = (l, v, sub = "") => `<div class="tile"><small>${l}</small><b style=
 
 async function mount(el, ctx) {
   const { api, rpc, go } = ctx;
-  let runs = [], aspans = [], sel = null, detail = null, view = ctx.id && AGN[ctx.id] ? "agent" : "run", f = { q: /^(CLM-|[0-9a-f-]{20,})/i.test(ctx.id || "") ? ctx.id : "", agent: AGN[ctx.id] ? ctx.id : "all", status: "all" }, live = true, timer = null, openSpan = {};
+  let runs = [], aspans = [], sel = null, selSp = null, detail = null, view = ctx.id && AGN[ctx.id] ? "agent" : "run", f = { q: /^(CLM-|[0-9a-f-]{20,})/i.test(ctx.id || "") ? ctx.id : "", agent: AGN[ctx.id] ? ctx.id : "all", status: "all" }, live = true, timer = null, openSpan = {};
   const cols = "execution_id,claim_no,status,live,started_at,completed_at,duration_ms,tokens_in,tokens_out,llm_calls,tool_calls,agents";
   const loadRuns = async () => { runs = await api(`uw_traces?select=${cols}&order=started_at.desc&limit=300`); };
   const loadAgent = async () => { aspans = await rpc("uw_agent_spans", { p_agent: f.agent === "all" ? null : f.agent, p_limit: 400 }) || []; };
@@ -33,13 +33,18 @@ async function mount(el, ctx) {
     if (!sel) return `<div class="empty" style="padding:70px 20px">Select a trace to see every agent step, LLM call and tool call.</div>`;
     if (!detail) return `<div class="spin">Loading trace…</div>`;
     const d = detail, claimId = (ctx.claimsById || {})[d.claim_no];
+    if (view === "agent") { const s = d.spans[selSp]; if (!s) return `<div class="empty" style="padding:70px 20px">Select an agent run.</div>`;
+      return `<div class="adh"><span class="sev lg" style="background:${(ST[s.status] || ["#6b7686"])[0]}">🤖</span><div><h3>${esc(AGN[s.agent_key]?.[0] || s.name)} ${badge(s.status, d.live && s.status === "running")}</h3><small>${esc(d.claim_no || "")} · ${s.started_at ? new Date(s.started_at).toLocaleString("en-GB") : ""}</small></div></div>
+      <div class="ada">${claimId ? `<a class="btn ghost sm" href="#/claim/${claimId}/ai">Open claim</a>` : ""}<a class="btn ghost sm" href="#/traces/${esc(d.claim_no || "")}">View full claim run</a></div>
+      <div class="tiles">${tile("Duration", dur(s.ms))}${tile("Model", esc(s.model || "-"))}${tile("Tokens", num(s.tokens_in + s.tokens_out), `${num(s.tokens_in)} in / ${num(s.tokens_out)} out`)}${tile("Events", num((s.events || []).length))}</div>
+      <h4>Execution steps</h4>${spanBody(s, selSp)}`; }
     return `<div class="adh"><span class="sev lg" style="background:${(ST[d.status] || ["#6b7686"])[0]}">⛓</span><div><h3>${esc(d.claim_no || "Execution")} ${badge(d.status, d.live)}</h3><small>Execution ${esc(d.execution_id.slice(0, 13))}… · started ${new Date(d.started_at).toLocaleString("en-GB")}</small></div></div>
     <div class="ada">${claimId ? `<a class="btn ghost sm" href="#/claim/${claimId}/ai">Open claim</a>` : ""}${d.live ? `<span class="shint">Live - updating every few seconds</span>` : ""}</div>
     <div class="tiles">${tile("Duration", dur(d.duration_ms))}${tile("LLM calls", num(d.llm_calls))}${tile("Tool calls", num(d.tool_calls))}${tile("Tokens", num(d.tokens_in + d.tokens_out), `${num(d.tokens_in)} in / ${num(d.tokens_out)} out`)}</div>
     <h4>Timeline</h4>${waterfall(d)}<h4>Steps</h4>${d.spans.map(spanBody).join("")}`;
   }
   function runRow(r) { return `<div class="ali ${r.execution_id === sel ? "on" : ""}" data-id="${r.execution_id}"><span class="sev" style="background:${(ST[r.status] || ["#6b7686"])[0]}">⛓</span><div class="alb"><b>${esc(r.claim_no || "Execution")} ${badge(r.status, r.live)}</b><small>${dur(r.duration_ms)} · ${num(r.llm_calls)} LLM · ${num(r.tool_calls)} tools · ${num(r.tokens_in + r.tokens_out)} tokens</small><div class="alm">${(r.agents || []).map(a => `<span class="chip2">${AGN[a]?.[0] || a}</span>`).join("")}<span>${ago(r.started_at)}</span></div></div></div>`; }
-  function spanRow(s) { const k = s.execution_id; return `<div class="ali ${k === sel ? "on" : ""}" data-id="${k}" data-sp="${s.idx}"><span class="sev" style="background:${(ST[s.status] || ["#6b7686"])[0]}">🤖</span><div class="alb"><b>${esc(AGN[s.agent_key]?.[0] || s.name)} · ${esc(s.claim_no || "")} ${badge(s.status, s.live && s.status === "running")}</b><small>${dur(s.ms)} · ${num(s.tokens_in + s.tokens_out)} tokens${s.model ? " · " + esc(s.model) : ""}</small><div class="alm"><span>${ago(s.run_started)}</span></div></div></div>`; }
+  function spanRow(s) { const k = s.execution_id; return `<div class="ali ${k === sel && s.idx === selSp ? "on" : ""}" data-id="${k}" data-sp="${s.idx}"><span class="sev" style="background:${(ST[s.status] || ["#6b7686"])[0]}">🤖</span><div class="alb"><b>${esc(AGN[s.agent_key]?.[0] || s.name)} · ${esc(s.claim_no || "")} ${badge(s.status, s.live && s.status === "running")}</b><small>${dur(s.ms)} · ${num(s.tokens_in + s.tokens_out)} tokens${s.model ? " · " + esc(s.model) : ""}</small><div class="alm"><span>${ago(s.run_started)}</span></div></div></div>`; }
   function agentTiles() {
     const rows = Object.keys(AGN).map(k => { const x = aspans.filter(s => s.agent_key === k); return [k, x]; });
     if (f.agent !== "all") { const x = aspans, ok = x.filter(s => s.status === "completed").length; return `<div class="tiles">${tile("Runs", num(x.length))}${tile("Success", x.length ? Math.round(ok / x.length * 100) + "%" : "-")}${tile("Avg latency", x.length ? dur(x.reduce((a, s) => a + s.ms, 0) / x.length) : "-")}${tile("Avg tokens", x.length ? num(x.reduce((a, s) => a + s.tokens_in + s.tokens_out, 0) / x.length) : "-")}</div>`; }
@@ -54,13 +59,13 @@ async function mount(el, ctx) {
       ${view === "agent" ? `<div style="padding:10px 14px 0">${agentTiles()}</div>` : ""}
       <div class="als">${list.slice(0, 150).map(view === "run" ? runRow : spanRow).join("") || `<div class="empty">No traces match these filters.</div>`}</div></div>
       <div class="card al-detail" id="al-detail">${detailHtml()}</div></div>`;
-    el.querySelectorAll('input[name="tv"]').forEach(r => r.onchange = async () => { view = r.value; if (view === "agent") await loadAgent(); draw(); place(); });
+    el.querySelectorAll('input[name="tv"]').forEach(r => r.onchange = async () => { view = r.value; sel = null; selSp = null; detail = null; if (view === "agent") await loadAgent(); draw(); place(); });
     el.querySelector("#tr-q").oninput = e => { f.q = e.target.value; clearTimeout(draw.t); draw.t = setTimeout(() => { draw(); el.querySelector("#tr-q").focus(); const i = el.querySelector("#tr-q"); i.setSelectionRange(i.value.length, i.value.length); place(); }, 250); };
     el.querySelector("#tr-ag").onchange = async e => { f.agent = e.target.value; if (view === "agent") await loadAgent(); draw(); place(); };
     el.querySelector("#tr-st").onchange = e => { f.status = e.target.value; draw(); place(); };
     el.querySelector("#tr-live").onchange = e => { live = e.target.checked; schedule(); };
     el.querySelector("#tr-ref").onclick = async () => { await refresh(true); ctx.toast("Traces refreshed"); };
-    el.querySelectorAll(".ali").forEach(n => n.onclick = async () => { sel = n.dataset.id; detail = null; draw(); place(); await loadDetail(); const b = el.querySelector("#al-detail"); if (b) { b.innerHTML = detailHtml(); bind(); place(); } });
+    el.querySelectorAll(".ali").forEach(n => n.onclick = async () => { sel = n.dataset.id; selSp = view === "agent" ? +n.dataset.sp : null; detail = null; draw(); place(); await loadDetail(); const b = el.querySelector("#al-detail"); if (b) { b.innerHTML = detailHtml(); bind(); place(); } });
     bind();
   }
   function bind() {
