@@ -2,7 +2,7 @@
 (() => {
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const aed = n => "AED " + Math.round(n || 0).toLocaleString("en-US");
-const md = s => esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/\n/g, "<br>");
+const md = s => esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/(^|\s)_(.+?)_(?=\s|$)/g, "$1<i>$2</i>").replace(/\n/g, "<br>");
 const CL = n => "CLM-" + String(n).padStart(7, "0");
 const LS = { get: (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch (_) { return d; } }, set: (k, v) => localStorage.setItem(k, JSON.stringify(v)) };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -61,11 +61,11 @@ function parse(q) {
   e.hasFilter = !!(e.status || e.fraud || e.sev || e.damage || e.min != null || e.max != null || e.since || e.mine || e.auth || e.rec || e.noAI || e.overdue || e.makes || e.names);
   return e;
 }
-function filterClaims(e) {
-  const slaMs = 48 * 36e5;
-  return D.claims.filter(c => (!e.status || c.status === e.status) && (!e.fraud || e.fraud.includes(fraudOf(c))) && (!e.sev || D.an[c.id]?.damage_severity === e.sev) && (!e.damage || c.damage_area === e.damage) && (e.min == null || +c.claimed_amount > e.min) && (e.max == null || +c.claimed_amount < e.max)
+function filterClaims(e, only) {
+  const slaMs = 48 * 36e5, f = c => (!e.text || [c.claim_no, c.insured_name, c.make_model, c.reg_no, c.location, c.policy_no].join(" ").toLowerCase().includes(e.text)) && (!e.authName || (authOf(c) || "").toLowerCase() === e.authName.toLowerCase()) && (!e.status || c.status === e.status) && (!e.fraud || e.fraud.includes(fraudOf(c))) && (!e.sev || D.an[c.id]?.damage_severity === e.sev) && (!e.damage || c.damage_area === e.damage) && (e.min == null || +c.claimed_amount > e.min) && (e.max == null || +c.claimed_amount < e.max)
     && (!e.since || new Date(c.reported_on) >= e.since) && (!e.mine || c.assigned_to === ctx.user.id) && (!e.auth || (authOf(c) && authOf(c) !== "Underwriter" && OPEN.includes(c.status))) && (!e.rec || recOf(c).startsWith(e.rec)) && (!e.noAI || !D.R[c.id]?.fraud)
-    && (!e.overdue || (OPEN.includes(c.status) && Date.now() - new Date(c.reported_on) > slaMs)) && (!e.makes || e.makes.includes(c.make_model)) && (!e.names || e.names.includes(c.insured_name)));
+    && (!e.overdue || (OPEN.includes(c.status) && Date.now() - new Date(c.reported_on) > slaMs)) && (!e.makes || e.makes.includes(c.make_model)) && (!e.names || e.names.includes(c.insured_name));
+  return only ? f(only) : D.claims.filter(f);
 }
 
 // ---------- response building ----------
@@ -74,7 +74,7 @@ const reply = (text, o = {}) => ({ text, ...o });
 const nameOf = id => D.uws.find(u => u.id === id)?.name || "Unassigned";
 const SETS = [[/senior (underwriter )?(approval )?limit/, "approval", "senior_limit_aed", "Senior underwriter limit", "AED", "approval"], [/underwriter (approval )?limit|underwriter authority/, "approval", "underwriter_limit_aed", "Underwriter approval limit", "AED", "approval"], [/medium (fraud )?(risk )?threshold/, "fraud", "medium_threshold", "Medium fraud threshold", "", "fraud"], [/high (fraud )?(risk )?threshold/, "fraud", "high_threshold", "High fraud threshold", "", "fraud"], [/late[- ]report(ing)?( hours| window)?/, "fraud", "late_report_hours", "Late-report window (hours)", "", "fraud"], [/daily (run|workflow)( cap| limit)?|run cap/, "ai_global", "daily_run_cap", "Daily AI run cap", "", "limits"], [/monthly token budget|token budget/, "ai_global", "monthly_token_budget", "Monthly token budget", "", "limits"], [/sla( hours)?|decision sla/, "sla", "decision_sla_hours", "Decision SLA (hours)", "", "sla"], [/latency alert|p95/, "ai_global", "alert_p95_latency_sec", "Latency alert (P95 seconds)", "", "limits"]];
 
-async function answer(q) {
+async function localAnswer(q) {
   await load(); const e = parse(q), t = e.t, trim = t.trim();
   // pending confirmation
   if (pending) { const p = pending; if (/^(yes|y|yep|yeah|confirm|do it|go ahead|sure|ok|okay|apply|proceed)\b/.test(trim)) { pending = null; return p.run(); } if (/^(no|n|nope|cancel|stop|never ?mind|don'?t)\b/.test(trim)) { pending = null; return reply("No problem - I've cancelled that. Nothing was changed."); } pending = null; }
@@ -139,29 +139,81 @@ function explain(c) {
   return reply(txt, { actions: [["Open claim", `/claim/${c.id}/overview`], ["AI analysis", `/claim/${c.id}/ai`], ["Decision", `/claim/${c.id}/decision`]], chips: f ? [] : ["Run AI agents on it"] });
 }
 
+// ---------- LLM path (Kore chat agent via the bridge worker) ----------
+const CAN = { status: ["New", "Pending Underwriting", "In Review", "Pending Documents", "Pending Garage Estimate", "Approved", "Closed", "Rejected"], sev: ["High", "Medium", "Low"] };
+const canon = (v, list) => list.find(x => x.toLowerCase() === String(v || "").toLowerCase());
+function specToE(f) {
+  const e = { desc: [] }; if (!f) return e; const n = x => (x === "" || x == null ? null : parseFloat(String(x).replace(/,/g, "")));
+  if (canon(f.status, CAN.status)) e.status = canon(f.status, CAN.status);
+  if (f.fraud) e.fraud = String(f.fraud).split(",").map(x => canon(x.trim(), ["High", "Medium", "Low"])).filter(Boolean);
+  if (canon(f.severity, CAN.sev)) e.sev = canon(f.severity, CAN.sev);
+  if (f.damage) e.damage = String(f.damage).toLowerCase();
+  if (n(f.min_claimed) != null) e.min = n(f.min_claimed); if (n(f.max_claimed) != null) e.max = n(f.max_claimed);
+  if (n(f.days)) e.since = Date.now() - n(f.days) * 864e5;
+  if (String(f.overdue) === "true") e.overdue = true; if (String(f.no_ai) === "true") e.noAI = true;
+  if (f.recommendation) e.rec = /reject/i.test(f.recommendation) ? "Reject" : /approv/i.test(f.recommendation) ? "Approve" : "Request";
+  if (f.authority) e.authName = String(f.authority);
+  if (f.make) e.makes = D.makes.filter(m => m.toLowerCase().includes(String(f.make).toLowerCase()));
+  if (f.insured) e.names = D.names.filter(m => m.toLowerCase().includes(String(f.insured).toLowerCase()));
+  if (f.text) e.text = String(f.text).toLowerCase();
+  return e;
+}
+const SETKEYS = { "approval.underwriter_limit_aed": ["Underwriter approval limit", "AED", "approval"], "approval.senior_limit_aed": ["Senior underwriter limit", "AED", "approval"], "fraud.medium_threshold": ["Medium fraud threshold", "", "fraud"], "fraud.high_threshold": ["High fraud threshold", "", "fraud"], "fraud.late_report_hours": ["Late-report window (hours)", "", "fraud"], "ai_global.daily_run_cap": ["Daily AI run cap", "", "limits"], "ai_global.monthly_token_budget": ["Monthly token budget", "", "limits"], "sla.decision_sla_hours": ["Decision SLA (hours)", "", "sla"], "ai_global.alert_p95_latency_sec": ["Latency alert (P95 seconds)", "", "limits"] };
+async function runActions(actions, out) {
+  for (const x of (actions || []).slice(0, 3)) {
+    try {
+      if (x.type === "show_claims") { const e = specToE(x.filter), list = D.claims.filter(c => filterClaims(e, c)).sort((p, q) => (scoreOf(q) || 0) - (scoreOf(p) || 0) || new Date(q.reported_on) - new Date(p.reported_on)); last.ids = list.map(c => c.id); last.label = x.label || "results"; ctx.showClaims(last.ids, last.label); out.list = list.slice(0, 6); out.applied = `Filtered the Claims list (${list.length})`; }
+      else if (x.type === "open_claim" && D.byNo[String(x.claim_no).toUpperCase()]) { const c = D.byNo[String(x.claim_no).toUpperCase()]; last.claim = c.claim_no; ctx.go(`/claim/${c.id}/${x.tab || "overview"}`); out.applied = `Opened ${c.claim_no}`; }
+      else if (x.type === "open_page") { const p = x.page, tb = x.tab; ctx.go(p === "reports" ? "/reports/" + (tb || "portfolio") : p === "settings" ? "/settings/" + (tb || "profile") : "/" + (p === "claims" ? "claims" : p)); out.applied = "Opened " + p + (tb ? " → " + tb : ""); }
+      else if (x.type === "alerts_filter") { window.__alertPreset = { type: x.alert_type, sev: x.severity, status: x.status || "open" }; ctx.go("/alerts"); out.applied = "Opened My Alerts with filters"; }
+      else if (x.type === "run_ai" && D.byNo[String(x.claim_no).toUpperCase()]) { const c = D.byNo[String(x.claim_no).toUpperCase()]; last.claim = c.claim_no; window.__autoRun = c.id; ctx.go(`/claim/${c.id}/ai`); out.applied = `Started the AI agents on ${c.claim_no}`; }
+      else if (x.type === "set_setting" && SETKEYS[x.setting] && Number.isFinite(+x.value)) { const [sec, key] = x.setting.split("."), [label, unit, tabk] = SETKEYS[x.setting], v = Math.round(+x.value);
+        const cur = (await ctx.api(`uw_settings?key=eq.${sec}&select=value`))[0]?.value || {};
+        pending = { run: async () => { await ctx.rpc("uw_save_setting", { p_key: sec, p_value: { ...cur, [key]: v }, p_user: ctx.user.name }); ctx.go("/settings/" + tabk); return reply(`Done - **${label}** is now **${unit ? aed(v) : v.toLocaleString()}** (was ${unit ? aed(cur[key]) : cur[key]}). It takes effect on the next AI run.`, { applied: "Setting saved" }); } };
+        out.chips = ["Yes, apply it", "No, cancel"]; out.applied = null; }
+    } catch (_) { /* skip a bad action */ }
+  }
+}
+async function llmAnswer(q) {
+  const hist = msgs.slice(-8).map(m => ({ role: m.role, text: String(m.text || "").replace(/\*\*/g, "").slice(0, 400) })), prompt = JSON.stringify({ message: q, history: hist, context: { page: location.hash, last_claim: last.claim, active_list: last.label || null, user: ctx.user.name.split(" ")[0] } });
+  const j = await ctx.rpc("uw_chat_request", { p_session: ctx.user.id, p_prompt: prompt }); const t0 = Date.now();
+  for (;;) { await sleep(700); const r = await ctx.rpc("uw_chat_poll", { p_id: j.id }); if (r && r.status === "done") { var raw = r.reply; break; } if (r && r.status === "failed") throw new Error(r.error || "failed"); if (Date.now() - t0 > 45000) throw new Error("timeout"); }
+  let p; try { p = JSON.parse(raw.replace(/^```(?:json)?\s*|\s*```$/g, "").trim()); } catch (_) { const m = raw.match(/\{[\s\S]*\}/); try { p = JSON.parse(m[0]); } catch (__) { p = { reply: raw, actions: [], chips: [] }; } }
+  const out = { chips: (p.chips || []).slice(0, 3) }; await runActions(p.actions, out); return reply(p.reply || "Done.", out);
+}
+async function workerUp() { try { const w = await ctx.api("uw_agent_stats?agent_key=eq.worker&select=updated_at"); return !!w[0] && Date.now() - new Date(w[0].updated_at) < 25000; } catch (_) { return false; } }
+let kore = null;
+async function answer(q) {
+  await load(); const trim = q.toLowerCase().trim();
+  if (pending && /^(yes|y|yep|yeah|confirm|do it|go ahead|sure|ok|okay|apply|proceed|no|n|nope|cancel|stop|never ?mind)\b/.test(trim)) return localAnswer(q);
+  pending = null; kore = await workerUp(); setBadge();
+  if (kore) { try { return await llmAnswer(q); } catch (e) { kore = false; setBadge(); } }
+  const r = await localAnswer(q); r.text += "\n\n_Kore AI is offline, so I used the built-in search._"; return r;
+}
+function setBadge() { const b = root?.querySelector("#cmode"); if (b) { b.className = kore ? "on" : ""; b.textContent = kore ? "Powered by Kore Agent Platform · GPT-5.2" : "Offline mode · built-in search"; } }
 // ---------- UI ----------
 const sug = ["Which claims need my attention today?", "Show high fraud risk claims", "How are the AI agents performing?", "Open the latest new claim"];
 function build() {
-  fab = document.createElement("button"); fab.className = "cfab"; fab.title = "ClaimAssist Assistant"; fab.innerHTML = `<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.600 7.100L4 20.500l1.400-4.500A8 8 0 1 1 21 12Z"/><path d="M9 11.500h6M9 14.500h3.500" /></svg><i>✦</i>`;
+  fab = document.createElement("button"); fab.className = "cfab"; fab.title = "ClaimAssist Assistant"; fab.innerHTML = ctx.logo();
   root = document.createElement("aside"); root.className = "cpanel"; document.body.append(fab, root); fab.onclick = () => toggle(true);
 }
-function toggle(v) { opened = v; root.classList.toggle("open", v); fab.style.display = v ? "none" : ""; document.body.classList.toggle("chat-open", v); document.body.classList.toggle("chat-wide", v && wide); if (v) { render(); setTimeout(() => root.querySelector("#cin")?.focus(), 250); } }
+function toggle(v) { opened = v; if (v && kore === null) workerUp().then(x => { kore = x; setBadge(); }); root.classList.toggle("open", v); fab.style.display = v ? "none" : ""; document.body.classList.toggle("chat-open", v); document.body.classList.toggle("chat-wide", v && wide); if (v) { render(); setTimeout(() => root.querySelector("#cin")?.focus(), 250); } }
 function bubble(m, i) {
   if (m.role === "user") return `<div class="cm u"><div class="cb">${esc(m.text)}</div></div>`;
   const star = (LS.get("uw_bm", []).some(b => b.a === m.text)) ? "★" : "☆";
-  return `<div class="cm a"><div class="cav">${ctx.avatar()}</div><div class="cb">${md(m.text)}${m.list ? `<div class="cml">${m.list.map(row).join("")}</div>` : ""}${m.actions ? `<div class="cac">${m.actions.map(([l, h]) => `<button data-go="${h}">${l}</button>`).join("")}</div>` : ""}${m.applied ? `<div class="capp">✓ ${esc(m.applied)}</div>` : ""}<div class="ctl"><button data-bm="${i}" title="Bookmark">${star}</button></div></div></div>${m.chips ? `<div class="cch">${m.chips.map(c => `<button data-chip="${esc(c)}">${esc(c)}</button>`).join("")}</div>` : ""}`;
+  return `<div class="cm a"><div class="cav">${ctx.logo()}</div><div class="cb">${md(m.text)}${m.list ? `<div class="cml">${m.list.map(row).join("")}</div>` : ""}${m.actions ? `<div class="cac">${m.actions.map(([l, h]) => `<button data-go="${h}">${l}</button>`).join("")}</div>` : ""}${m.applied ? `<div class="capp">✓ ${esc(m.applied)}</div>` : ""}<div class="ctl"><button data-bm="${i}" title="Bookmark">${star}</button></div></div></div>${m.chips ? `<div class="cch">${m.chips.map(c => `<button data-chip="${esc(c)}">${esc(c)}</button>`).join("")}</div>` : ""}`;
 }
 function render() {
   const first = ctx.user.name.split(" ")[0];
   let body;
-  if (tab === "chat") body = msgs.length ? `<div class="cms" id="cms">${msgs.map(bubble).join("")}${busy ? `<div class="cm a"><div class="cav">${ctx.avatar()}</div><div class="cb typing"><i></i><i></i><i></i></div></div>` : ""}</div>` :
+  if (tab === "chat") body = msgs.length ? `<div class="cms" id="cms">${msgs.map(bubble).join("")}${busy ? `<div class="cm a"><div class="cav">${ctx.logo()}</div><div class="cb typing"><i></i><i></i><i></i></div></div>` : ""}</div>` :
     `<div class="chello"><h2>Hello ${esc(first)}!</h2><h2 class="dim">What would you like to do?</h2></div><div class="csug">${sug.map(s => `<button data-chip="${esc(s)}"><span>${esc(s)}</span><i>➜</i></button>`).join("")}</div>`;
   else if (tab === "queries") { const q = LS.get("uw_q", []); body = `<div class="clist">${q.length ? q.map(x => `<button data-chip="${esc(x.q)}"><b>${esc(x.q)}</b><small>${ago(x.t)}</small></button>`).join("") : `<div class="cempty">Your recent questions will appear here.</div>`}</div>`; }
   else { const b = LS.get("uw_bm", []); body = `<div class="clist">${b.length ? b.map((x, i) => `<div class="cbm"><button data-chip="${esc(x.q)}"><b>${esc(x.q)}</b><small>${esc(x.a.replace(/\*\*/g, "").slice(0, 140))}…</small></button><button class="rm" data-rmbm="${i}" title="Remove">✕</button></div>`).join("") : `<div class="cempty">Star an answer (☆) to bookmark it.</div>`}</div>`; }
-  root.innerHTML = `<div class="chd"><b>ClaimAssist Assistant</b><div><button id="cnew" title="New chat">＋</button><button id="cexp" title="Expand">⤢</button><button id="cx" title="Close">✕</button></div></div>
+  root.innerHTML = `<div class="chd"><div><b>ClaimAssist Assistant</b><small id="cmode"></small></div><div><button id="cnew" title="New chat">＋</button><button id="cexp" title="Expand">⤢</button><button id="cx" title="Close">✕</button></div></div>
     <div class="ctabs">${[["chat", "Chat"], ["queries", "Queries"], ["bm", "Bookmarks"]].map(([k, l]) => `<button data-tab="${k}" class="${tab === k ? "on" : ""}">${l}</button>`).join("")}</div><div class="cbody">${body}</div>
     <div class="cinp"><button id="cmic" title="Voice input">🎙</button><input id="cin" placeholder="Ask me anything" autocomplete="off"><button id="csend" title="Send">➤</button></div>`;
-  const sc = root.querySelector("#cms"); if (sc) sc.scrollTop = sc.scrollHeight;
+  setBadge(); const sc = root.querySelector("#cms"); if (sc) sc.scrollTop = sc.scrollHeight;
   root.querySelector("#cx").onclick = () => toggle(false); root.querySelector("#cnew").onclick = () => { msgs = []; pending = null; sessionStorage.removeItem("uw_chat"); tab = "chat"; render(); };
   root.querySelector("#cexp").onclick = () => { wide = !wide; document.body.classList.toggle("chat-wide", wide); };
   root.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { tab = b.dataset.tab; render(); });
@@ -176,7 +228,7 @@ function render() {
 }
 async function send(text) {
   if (busy) return; tab = "chat"; msgs.push({ role: "user", text }); busy = true; const q = LS.get("uw_q", []).filter(x => x.q !== text); q.unshift({ q: text, t: Date.now() }); LS.set("uw_q", q.slice(0, 40)); render();
-  let r; try { await sleep(550 + Math.random() * 400); r = await answer(text); } catch (e) { r = reply("Sorry, something went wrong while looking that up: " + e.message); }
+  let r; try { r = await answer(text); } catch (e) { r = reply("Sorry, something went wrong while looking that up: " + e.message); }
   msgs.push({ role: "assistant", ...r }); busy = false; sessionStorage.setItem("uw_chat", JSON.stringify(msgs.slice(-30))); if (!opened) toggle(true); else render();
 }
 window.Assistant = {

@@ -169,3 +169,12 @@ code{background:#eef1f6;padding:1px 6px;border-radius:4px;font-size:11.5px}
 .chat-open .grid2{grid-template-columns:1fr}.chat-open .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.chat-open .stats{grid-template-columns:repeat(3,minmax(0,1fr))}.chat-open .agents{grid-template-columns:1fr}.chat-open .agents.three{grid-template-columns:1fr}.chat-open .g2,.chat-open .g3,.chat-open .tiles.five{grid-template-columns:1fr 1fr}.chat-open .alw{grid-template-columns:1fr}.chat-open .al-detail{position:static}.chat-open .gallery{grid-template-columns:repeat(2,1fr)}.chat-open .stl{grid-template-columns:1fr}.chat-open .nav2{flex-direction:row;flex-wrap:wrap;position:static}.chat-open .rst{grid-template-columns:1fr}
 .chat-open .toast{left:calc((100% - var(--cw)) / 2)}
 @media(min-width:1700px){.chat-open .grid2{grid-template-columns:1fr 1fr}.chat-open .agents{grid-template-columns:1fr 1fr}}
+
+/* assistant: logo launcher bottom-left, panel docked on the left next to the nav */
+.cfab{right:auto!important;left:16px;bottom:88px;width:auto;height:auto;border-radius:14px;background:none;box-shadow:0 8px 22px #1d5fe055;padding:0;display:block;line-height:0}.cfab svg{width:52px;height:52px;border-radius:14px;display:block}.cfab i{display:none}
+.cpanel{right:auto!important;left:240px;transform:translateX(calc(-100% - 260px))}.cpanel.open{transform:none}
+.chat-open .main{margin-right:0!important;margin-left:calc(var(--cw) + 12px)}.chat-open .toast{left:calc(50% + (var(--cw) + 230px) / 2)}
+.chd small{display:block;font-size:11px;color:#9a948f;margin-top:2px}.chd small.on{color:#15803d}.chd small.on::before{content:"● ";color:#16a34a}.chd small:not(.on)::before{content:"○ "}
+.cm .cav svg{border-radius:9px}
+@media(max-width:900px){.cpanel{left:0!important}.chat-open .main{margin-left:0!important}}
+td:last-child,th:last-child{white-space:nowrap}.chat-open td,.chat-open th{padding-left:6px;padding-right:6px;font-size:12.5px}.chat-open table td:first-child b{white-space:nowrap}
