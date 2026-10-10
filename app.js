@@ -219,11 +219,11 @@ async function renderClaim(id, tab) {
   bind(tab, d);
 }
 const dl = rows => `<dl class="kv">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v == null || v === "" ? "—" : v}</dd>`).join("")}</dl>`;
-function carThumb(d) { const i = d.docs.find(x => x.kind === "image" && x.file_name === "vehicle_1.jpg") || d.docs.find(x => x.kind === "image" && x.storage_path); return i ? `<img src="${imgSrc(i)}" style="width:100%;border-radius:8px">` : ""; }
+function carThumb(d) { const i = d.docs.find(x => x.kind === "image" && x.file_name === "vehicle_1.jpg") || d.docs.find(x => x.kind === "image" && x.storage_path) || d.docs.find(x => x.kind === "image" && /vehicle|front/i.test(x.title)); return i ? `<img src="${imgSrc(i)}" style="width:100%;border-radius:8px">` : ""; }
 function overview(d) {
   const c = d.c;
   return `<div class="grid2"><div class="card"><h4>Claim Information</h4>${dl([["Claim Type", esc(c.claim_type)], ["Accident Type", esc(c.accident_type)], ["Location", esc(c.location)], ["Description", esc(c.description)], ["Loss time", esc(c.loss_time)], ["Injuries", c.injuries ? "Yes" : "No"], ["Police report", esc(c.police_report_no)], ["Claimed amount", money(c.claimed_amount)], ["Assigned garage", esc(c.garage_name)], ["Submitted via", c.source === "customer" ? "Customer portal (ClaimAssist)" : "Back office"]])}</div>
-  <div class="card"><h4>Vehicle Information</h4><div class="grid2" style="grid-template-columns:150px 1fr">${carThumb(d)}${dl([["Make / Model", esc(c.make_model)], ["Reg No", esc(c.reg_no)], ["Year", c.vehicle_year], ["VIN", esc(c.vin)], ["Color", esc(c.color)]])}</div></div>
+  <div class="card"><h4>Vehicle Information</h4><div class="grid2" style="grid-template-columns:${carThumb(d) ? "150px 1fr" : "1fr"}">${carThumb(d)}${dl([["Make / Model", esc(c.make_model)], ["Reg No", esc(c.reg_no)], ["Year", c.vehicle_year], ["VIN", esc(c.vin)], ["Color", esc(c.color)]])}</div></div>
   <div class="card"><h4>Insured &amp; Policy</h4>${dl([["Insured", esc(c.insured_name)], ["Phone", esc(c.insured_phone)], ["Email", esc(c.insured_email)], ["Policy No", c.policy_no], ["Policy period", `${fdate(c.policy_start)} → ${fdate(c.policy_end)}`], ["Sum insured", money(c.sum_insured)], ["Deductible", money(c.deductible)]])}</div></div>`;
 }
 function vehicle(d) { const c = d.c; return `<div class="grid2"><div class="card">${carThumb(d)}</div><div class="card"><h4>${esc(c.make_model)}</h4>${dl([["Reg No", esc(c.reg_no)], ["Year", c.vehicle_year], ["VIN", esc(c.vin)], ["Color", esc(c.color)], ["Damage area", esc(c.damage_area)], ["Registered owner", esc(c.insured_name)]])}</div></div>`; }
